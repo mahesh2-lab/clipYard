@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWebRTC, type UseWebRTCReturn } from '@/hooks/useWebRTC'
-import { sendFile, validateFile, generateTransferId, FileReceiver } from '@/lib/webrtc/fileTransfer'
+import { sendFile, validateFile, generateTransferId, FileReceiver, getFileCategory, getNormalizedMimeType } from '@/lib/webrtc/fileTransfer'
 import { parseIncomingMessage } from '@/lib/webrtc/dataChannel'
 import { getFilesByRoom, saveFileToDB } from '@/lib/webrtc/db'
 import type {
@@ -217,13 +217,50 @@ export function useFileTransfer({
       const currentItem = sendQueue[0]
       const channels = webrtc.getAllChannels()
 
+      console.log('[useFileTransfer] processNext:', {
+        file: currentItem.file.name,
+        size: currentItem.file.size,
+        connectedChannelsCount: channels.length,
+        peers: channels.map(c => ({ peerId: c.peerId, peerName: c.peerName, state: c.channel.readyState })),
+      })
+
       if (channels.length === 0) {
-        updateTransfer(currentItem.id, { status: 'failed', error: 'No connected peers' })
+        console.log('[useFileTransfer] No remote peers connected. Adding as local attachment preview:', currentItem.file.name)
+        const category = getFileCategory(currentItem.file.type, currentItem.file.name)
+        const previewUrl = URL.createObjectURL(currentItem.file)
+        objectUrlsRef.current.add(previewUrl)
+
+        const localCompletedTransfer: Transfer = {
+          id: currentItem.id,
+          batchId: currentItem.id,
+          fileName: currentItem.file.name || 'file',
+          fileSize: currentItem.file.size,
+          mimeType: getNormalizedMimeType(currentItem.file),
+          category,
+          direction: 'received',
+          peerId: 'local',
+          peerName: 'You',
+          status: 'completed',
+          progress: 100,
+          createdAt: Date.now(),
+          objectUrl: previewUrl,
+          blob: currentItem.file,
+        }
+
+        setTransfers((prev) => [...prev.filter((t) => t.id !== currentItem.id), localCompletedTransfer])
       } else {
+        // Replace placeholder pending transfer with active peer transfers
+        setTransfers((prev) => prev.filter((t) => t.id !== currentItem.id))
+
+        const category = getFileCategory(currentItem.file.type, currentItem.file.name)
+        const isMedia = category === 'image' || category === 'audio'
+        const previewUrl = isMedia ? URL.createObjectURL(currentItem.file) : undefined
+        if (previewUrl) {
+          objectUrlsRef.current.add(previewUrl)
+        }
+
         // Send to each target peer concurrently, but wait for all to finish before next file
         const sendPromises = channels.map(async ({ peerId, peerName, channel }) => {
-          // Note: In a real system you'd want a transfer ID per peer, 
-          // or group them by batchId. For simplicity, reusing id here.
           const transferId = generateTransferId()
           const abortController = new AbortController()
           abortControllersRef.current.set(transferId, abortController)
@@ -233,17 +270,18 @@ export function useFileTransfer({
             batchId: currentItem.id, // Group them by the queue item ID
             fileName: currentItem.file.name || 'file',
             fileSize: currentItem.file.size,
-            mimeType: currentItem.file.type,
-            // Temporarily mapping category on client, though fileTransfer engine does it too
-            category: 'file', // updateTransfer will pick up the real category from DB or we can just leave it since the sender doesn't show their own category deeply, actually let's set it
+            mimeType: getNormalizedMimeType(currentItem.file),
+            category,
             direction: 'sent',
             peerId,
             peerName,
             status: 'transferring',
             progress: 0,
             createdAt: Date.now(),
+            objectUrl: previewUrl,
           }
 
+          console.log(`[useFileTransfer] Dispatching sendFile to peer ${peerName} (${peerId}) with transferId: ${transferId}`)
           setTransfers((prev) => [...prev, newTransfer])
 
           try {
@@ -258,12 +296,15 @@ export function useFileTransfer({
               },
               abortSignal: abortController.signal,
             })
+            console.log(`[useFileTransfer] Transfer completed for ${transferId}`)
             updateTransfer(transferId, { status: 'completed', progress: 100 })
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') {
+              console.warn(`[useFileTransfer] Transfer cancelled for ${transferId}`)
               updateTransfer(transferId, { status: 'cancelled' })
             } else {
               const errorMsg = err instanceof Error ? err.message : 'Transfer failed'
+              console.error(`[useFileTransfer] Transfer failed for ${transferId}:`, errorMsg)
               updateTransfer(transferId, { status: 'failed', error: errorMsg })
             }
           } finally {
@@ -274,7 +315,7 @@ export function useFileTransfer({
         await Promise.allSettled(sendPromises)
       }
 
-      setSendQueue(q => q.slice(1))
+      setSendQueue((q) => q.slice(1))
       setIsProcessingQueue(false)
     }
 
@@ -282,13 +323,37 @@ export function useFileTransfer({
   }, [sendQueue, isProcessingQueue, webrtc, localName, updateTransfer])
 
   const queueFile = useCallback((file: File) => {
+    console.log('[useFileTransfer] queueFile called with:', { name: file.name, size: file.size, type: file.type })
     const validation = validateFile(file)
     if (!validation.valid) {
+      console.warn('[useFileTransfer] queueFile validation failed:', validation.error)
       throw new Error(validation.error)
     }
 
     const batchId = generateTransferId()
-    setSendQueue(prev => [...prev, { id: batchId, file }])
+    const category = getFileCategory(file.type, file.name)
+    const previewUrl = URL.createObjectURL(file)
+    objectUrlsRef.current.add(previewUrl)
+
+    const pendingTransfer: Transfer = {
+      id: batchId,
+      batchId,
+      fileName: file.name || 'file',
+      fileSize: file.size,
+      mimeType: getNormalizedMimeType(file),
+      category,
+      direction: 'sent',
+      peerId: '',
+      peerName: '',
+      status: 'pending',
+      progress: 0,
+      createdAt: Date.now(),
+      objectUrl: previewUrl,
+    }
+
+    console.log('[useFileTransfer] Added pending transfer to queue:', pendingTransfer)
+    setTransfers((prev) => [...prev, pendingTransfer])
+    setSendQueue((prev) => [...prev, { id: batchId, file }])
   }, [])
 
   const cancelTransfer = useCallback((transferId: string) => {
@@ -299,14 +364,22 @@ export function useFileTransfer({
   }, [])
 
   const downloadFile = useCallback((transfer: Transfer) => {
-    const url = transfer.objectUrl
+    let url = transfer.objectUrl
+    let revokeNeeded = false
+    if (!url && transfer.blob) {
+      url = URL.createObjectURL(transfer.blob)
+      revokeNeeded = true
+    }
     if (!url) return
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = transfer.fileName
+    anchor.download = transfer.fileName || 'download'
     document.body.appendChild(anchor)
     anchor.click()
     document.body.removeChild(anchor)
+    if (revokeNeeded) {
+      setTimeout(() => URL.revokeObjectURL(url!), 1000)
+    }
   }, [])
 
   // Cleanup object URLs on unmount

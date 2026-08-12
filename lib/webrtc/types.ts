@@ -20,7 +20,7 @@ export interface FileTransferMetadata {
   size: number
   totalChunks: number
   senderName: string
-  category: 'image' | 'video' | 'document' | 'file'
+  category: 'image' | 'video' | 'audio' | 'document' | 'file'
 }
 
 export interface FileChunkHeader {
@@ -57,7 +57,7 @@ export interface Transfer {
   fileName: string
   fileSize: number
   mimeType: string
-  category: 'image' | 'video' | 'document' | 'file'
+  category: 'image' | 'video' | 'audio' | 'document' | 'file'
   direction: TransferDirection
   peerId: string
   peerName: string

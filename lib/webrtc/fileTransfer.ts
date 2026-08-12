@@ -21,48 +21,117 @@ import { FILE_TRANSFER_CONFIG } from './config'
 
 // ─── Validation & Categorization ────────────────────────────────────────────
 
-export function getFileCategory(mimeType: string): 'image' | 'video' | 'document' | 'file' {
-  if (mimeType.startsWith('image/')) return 'image'
-  if (mimeType.startsWith('video/')) return 'video'
+export function getNormalizedMimeType(file: { type?: string; name?: string }): string {
+  if (file.type && file.type.trim() !== '' && file.type !== 'application/octet-stream') {
+    return file.type
+  }
+  const ext = file.name ? file.name.split('.').pop()?.toLowerCase() || '' : ''
+  const mimeMap: Record<string, string> = {
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    m4a: 'audio/mp4',
+    aac: 'audio/aac',
+    ogg: 'audio/ogg',
+    oga: 'audio/ogg',
+    opus: 'audio/opus',
+    flac: 'audio/flac',
+    weba: 'audio/webm',
+    wma: 'audio/x-ms-wma',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    mov: 'video/quicktime',
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    csv: 'text/csv',
+  }
+  return mimeMap[ext] || file.type || 'application/octet-stream'
+}
+
+export function getFileCategory(mimeType: string, fileName?: string): 'image' | 'video' | 'audio' | 'document' | 'file' {
+  const normalizedMime = (mimeType || '').toLowerCase()
+  const ext = fileName ? fileName.split('.').pop()?.toLowerCase() || '' : ''
+
   if (
-    mimeType.startsWith('text/') ||
-    mimeType === 'application/pdf' ||
-    mimeType === 'application/msword' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-    mimeType === 'application/vnd.ms-excel' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-    mimeType === 'application/vnd.ms-powerpoint' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
-    mimeType === 'text/csv'
+    normalizedMime.startsWith('image/') ||
+    ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext)
+  ) {
+    return 'image'
+  }
+
+  if (
+    normalizedMime.startsWith('video/') ||
+    ['mp4', 'webm', 'mov', 'mkv', 'avi', 'wmv', 'flv'].includes(ext)
+  ) {
+    return 'video'
+  }
+
+  if (
+    normalizedMime.startsWith('audio/') ||
+    ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'weba', 'flac', 'opus', 'wma', 'aiff', 'alac', 'mid', 'midi'].includes(ext)
+  ) {
+    return 'audio'
+  }
+
+  if (
+    normalizedMime.startsWith('text/') ||
+    normalizedMime === 'application/pdf' ||
+    normalizedMime.includes('word') ||
+    normalizedMime.includes('excel') ||
+    normalizedMime.includes('powerpoint') ||
+    normalizedMime.includes('document') ||
+    normalizedMime.includes('spreadsheet') ||
+    normalizedMime.includes('presentation') ||
+    normalizedMime === 'text/csv' ||
+    ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'rtf', 'odt', 'ods', 'odp'].includes(ext)
   ) {
     return 'document'
   }
+
   return 'file'
 }
-
+  
 export function validateFile(file: File): { valid: boolean; error?: string } {
-  const category = getFileCategory(file.type)
+  const category = getFileCategory(file.type, file.name)
+  console.log('[FileTransfer] validateFile check:', {
+    name: file.name,
+    rawType: file.type,
+    normalizedType: getNormalizedMimeType(file),
+    category,
+    size: file.size,
+  })
   
   if (!FILE_TRANSFER_CONFIG.ALLOWED_CATEGORIES.includes(category)) {
+    const error = `Unsupported file category: ${category}. Allowed: ${FILE_TRANSFER_CONFIG.ALLOWED_CATEGORIES.join(', ')}.`
+    console.warn('[FileTransfer] Validation error:', error)
     return {
       valid: false,
-      error: `Unsupported file category: ${category}. Allowed: ${FILE_TRANSFER_CONFIG.ALLOWED_CATEGORIES.join(', ')}.`,
+      error,
     }
   }
 
   if (file.size > FILE_TRANSFER_CONFIG.MAX_FILE_SIZE) {
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
     const limitMB = (FILE_TRANSFER_CONFIG.MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)
+    const error = `File is too large (${sizeMB} MB). Maximum allowed size is ${limitMB} MB.`
+    console.warn('[FileTransfer] Validation error:', error)
     return {
       valid: false,
-      error: `File is too large (${sizeMB} MB). Maximum allowed size is ${limitMB} MB.`,
+      error,
     }
   }
 
   if (file.size === 0) {
+    console.warn('[FileTransfer] Validation error: File is empty')
     return { valid: false, error: 'File is empty.' }
   }
 
+  console.log('[FileTransfer] File validation successful:', file.name)
   return { valid: true }
 }
 
@@ -103,18 +172,32 @@ export async function sendFile({
   abortSignal,
 }: SendFileOptions): Promise<void> {
   const totalChunks = Math.ceil(file.size / FILE_TRANSFER_CONFIG.CHUNK_SIZE)
+  const category = getFileCategory(file.type, file.name)
+  const mimeType = getNormalizedMimeType(file)
+
+  console.log('[FileTransfer] Starting sendFile:', {
+    transferId,
+    fileName: file.name,
+    size: file.size,
+    category,
+    mimeType,
+    totalChunks,
+    channelLabel: channel.label,
+    channelState: channel.readyState,
+  })
 
   // 1. Send metadata
   const metadata: FileTransferMetadata = {
     type: 'file-start',
     transferId,
     fileName: file.name || 'file',
-    mimeType: file.type,
+    mimeType,
     size: file.size,
     totalChunks,
     senderName,
-    category: getFileCategory(file.type),
+    category,
   }
+  console.log('[FileTransfer] Sending file-start control message:', metadata)
   sendControlMessage(channel, metadata)
 
   let offset = 0
@@ -123,6 +206,7 @@ export async function sendFile({
   while (offset < file.size) {
     // Check for cancellation
     if (abortSignal?.aborted) {
+      console.warn('[FileTransfer] Send aborted by user for transferId:', transferId)
       const cancel: FileTransferCancel = { type: 'file-cancel', transferId }
       sendControlMessage(channel, cancel)
       throw new DOMException('Transfer cancelled', 'AbortError')
@@ -130,6 +214,7 @@ export async function sendFile({
 
     // Check channel state
     if (channel.readyState !== 'open') {
+      console.error('[FileTransfer] DataChannel closed during transfer:', { transferId, state: channel.readyState })
       throw new Error('DataChannel closed during transfer')
     }
 
@@ -137,7 +222,9 @@ export async function sendFile({
     // 2MB backpressure threshold limit
     const MAX_BUFFERED_AMOUNT = 2 * 1024 * 1024
     if (channel.bufferedAmount > MAX_BUFFERED_AMOUNT) {
+      console.log(`[FileTransfer] Backpressure buffer full (${channel.bufferedAmount} bytes). Waiting for drain...`)
       await waitForBufferDrain(channel, MAX_BUFFERED_AMOUNT)
+      console.log(`[FileTransfer] Buffer drained. Continuing transfer for ${transferId}...`)
     }
 
     const end = Math.min(offset + FILE_TRANSFER_CONFIG.CHUNK_SIZE, file.size)
@@ -157,12 +244,17 @@ export async function sendFile({
 
     offset = end
     chunkIndex++
+    if (chunkIndex === 1 || chunkIndex === totalChunks || chunkIndex % 20 === 0) {
+      console.log(`[FileTransfer] Sent chunk ${chunkIndex}/${totalChunks} (${offset}/${file.size} bytes) for ${transferId}`)
+    }
     onProgress?.(offset, file.size)
   }
 
   // 3. Send completion
   const complete: FileTransferComplete = { type: 'file-complete', transferId }
+  console.log('[FileTransfer] Sending file-complete control message:', complete)
   sendControlMessage(channel, complete)
+  console.log('[FileTransfer] File transfer finished successfully:', { transferId, fileName: file.name })
 }
 
 /**
@@ -230,6 +322,7 @@ export class FileReceiver {
    * Handle an incoming control message.
    */
   handleControlMessage(message: DataChannelMessage): void {
+    console.log('[FileReceiver] Received control message:', message.type, message)
     switch (message.type) {
       case 'file-start':
         this.handleStart(message as unknown as FileTransferMetadata)
@@ -252,20 +345,24 @@ export class FileReceiver {
   handleBinaryData(data: ArrayBuffer): void {
     const transferId = this.pendingBinaryFor
     if (!transferId) {
-      console.warn('[FileReceiver] Received binary data without pending chunk header')
+      console.warn('[FileReceiver] Received binary data without pending chunk header (size:', data.byteLength, ')')
       return
     }
     this.pendingBinaryFor = null
 
     const transfer = this.transfers.get(transferId)
     if (!transfer) {
-      console.warn(`[FileReceiver] No active transfer for id: ${transferId}`)
+      console.warn(`[FileReceiver] No active transfer found for id: ${transferId}`)
       return
     }
 
     transfer.chunks.push(data)
     transfer.receivedChunks++
     transfer.bytesReceived += data.byteLength
+
+    if (transfer.receivedChunks === 1 || transfer.receivedChunks === transfer.metadata.totalChunks || transfer.receivedChunks % 20 === 0) {
+      console.log(`[FileReceiver] Received chunk ${transfer.receivedChunks}/${transfer.metadata.totalChunks} (${transfer.bytesReceived}/${transfer.metadata.size} bytes) for ${transferId}`)
+    }
 
     this.callbacks.onProgress(
       transferId,
@@ -278,6 +375,7 @@ export class FileReceiver {
    * Clean up all active transfers. Called when the channel closes.
    */
   cleanup(): void {
+    console.log('[FileReceiver] Cleaning up receiver active transfers:', Array.from(this.transfers.keys()))
     for (const [transferId] of this.transfers) {
       this.callbacks.onError(transferId, 'Connection lost during transfer')
     }
@@ -286,9 +384,10 @@ export class FileReceiver {
   }
 
   private handleStart(metadata: FileTransferMetadata): void {
+    console.log('[FileReceiver] Starting incoming transfer:', metadata)
     // Guard against duplicate transfer IDs
     if (this.transfers.has(metadata.transferId)) {
-      console.warn(`[FileReceiver] Duplicate transferId: ${metadata.transferId}`)
+      console.warn(`[FileReceiver] Duplicate transferId received: ${metadata.transferId}`)
       return
     }
 
@@ -306,7 +405,7 @@ export class FileReceiver {
   private handleChunkHeader(header: FileChunkHeader): void {
     const transfer = this.transfers.get(header.transferId)
     if (!transfer) {
-      console.warn(`[FileReceiver] Chunk for unknown transfer: ${header.transferId}`)
+      console.warn(`[FileReceiver] Chunk header for unknown transfer: ${header.transferId}`)
       return
     }
     // Mark that the next binary message belongs to this transfer
@@ -315,11 +414,23 @@ export class FileReceiver {
   }
 
   private handleComplete(msg: FileTransferComplete): void {
+    console.log('[FileReceiver] Received file-complete for transferId:', msg.transferId)
     const transfer = this.transfers.get(msg.transferId)
-    if (!transfer) return
+    if (!transfer) {
+      console.warn('[FileReceiver] file-complete for unknown transfer:', msg.transferId)
+      return
+    }
 
     try {
       const blob = new Blob(transfer.chunks, { type: transfer.metadata.mimeType })
+      console.log('[FileReceiver] Assembled file Blob:', {
+        transferId: msg.transferId,
+        fileName: transfer.metadata.fileName,
+        size: blob.size,
+        mimeType: blob.type,
+        category: transfer.metadata.category,
+      })
+
       // Clear chunks from memory quickly after blob creation
       transfer.chunks = []
       this.transfers.delete(msg.transferId)
@@ -333,6 +444,7 @@ export class FileReceiver {
   }
 
   private handleCancel(msg: FileTransferCancel): void {
+    console.log('[FileReceiver] Handling file-cancel for transferId:', msg.transferId)
     if (this.transfers.has(msg.transferId)) {
       this.transfers.delete(msg.transferId)
       this.callbacks.onCancelled(msg.transferId)

@@ -18,7 +18,7 @@ export interface StoredFile {
   createdAt: number
   peerId: string
   peerName: string
-  category?: 'image' | 'video' | 'document' | 'file'
+  category?: 'image' | 'video' | 'audio' | 'document' | 'file'
 }
 
 function getDB(): Promise<IDBDatabase> {

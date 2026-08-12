@@ -6,6 +6,11 @@
  *
  * Deterministic initiator rule: the peer with the lexicographically
  * greater UID creates the offer. This prevents duplicate connections.
+ *
+ * Robustness improvements:
+ *  - ICE candidates are queued until setRemoteDescription() completes.
+ *  - Failed connections trigger an ICE restart (re-offer).
+ *  - Signaling is cleaned up after successful connection.
  */
 
 'use client'
@@ -43,6 +48,12 @@ interface PeerState {
   hasConnected: boolean
   /** Track the presence instance ID to detect reloads */
   instanceId?: string
+  /** ICE candidates buffered before setRemoteDescription completes */
+  pendingCandidates: RTCIceCandidateInit[]
+  /** Whether remote description has been set (safe to add ICE candidates) */
+  remoteDescSet: boolean
+  /** Whether a reconnect is currently in progress */
+  reconnecting: boolean
 }
 
 export interface UseWebRTCOptions {
@@ -76,6 +87,11 @@ export function useWebRTC({
   const [peerList, setPeerList] = useState<WebRTCPeer[]>([])
   /** Tracks which peers we've already initiated or responded to, to avoid double connections */
   const processedPeersRef = useRef(new Set<string>())
+  // Stable refs for roomId and localUid to use inside callbacks
+  const roomIdRef = useRef(roomId)
+  roomIdRef.current = roomId
+  const localUidRef = useRef(localUid)
+  localUidRef.current = localUid
 
   // Update peer list state for consumers
   const syncPeerList = useCallback(() => {
@@ -110,19 +126,48 @@ export function useWebRTC({
       if (state) {
         state.channel = channel
         updatePeerStatus(peerId, 'connected')
+        console.log(`[WebRTC] DataChannel open with ${peerId}`)
+        // Clean up our signaling outbox once connected — no longer needed
+        clearSignalingOutbox(roomIdRef.current, localUidRef.current, peerId).catch(() => undefined)
       }
     }
     channel.onclose = () => {
+      console.log(`[WebRTC] DataChannel closed with ${peerId}`)
       updatePeerStatus(peerId, 'disconnected')
     }
-    channel.onerror = () => {
+    channel.onerror = (err) => {
+      console.error(`[WebRTC] DataChannel error with ${peerId}:`, err)
       updatePeerStatus(peerId, 'failed')
     }
   }, [updatePeerStatus])
 
+  /**
+   * Flush any queued ICE candidates for a peer after setRemoteDescription succeeds.
+   */
+  const flushPendingCandidates = useCallback(async (peerId: string) => {
+    const state = peerStatesRef.current.get(peerId)
+    if (!state || !state.remoteDescSet) return
+    const { connection: pc, pendingCandidates } = state
+    if (pendingCandidates.length === 0) return
+
+    console.log(`[WebRTC] Flushing ${pendingCandidates.length} queued ICE candidates for ${peerId}`)
+    const toFlush = [...pendingCandidates]
+    state.pendingCandidates = []
+
+    for (const candidate of toFlush) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } catch (err) {
+        console.warn(`[WebRTC] Failed to add queued ICE candidate from ${peerId}:`, err)
+      }
+    }
+  }, [])
+
   // Set up event handlers on a peer connection
   const attachConnectionHandlers = useCallback((peerId: string, pc: RTCPeerConnection) => {
     pc.onconnectionstatechange = () => {
+      const cs = pc.connectionState
+      console.log(`[WebRTC] Connection state change for ${peerId}: ${cs}`)
       const csMap: Record<string, PeerStatus> = {
         connecting: 'connecting',
         connected: 'connected',
@@ -130,14 +175,45 @@ export function useWebRTC({
         failed: 'failed',
         closed: 'disconnected',
       }
-      const mapped = csMap[pc.connectionState]
+      const mapped = csMap[cs]
       if (mapped) updatePeerStatus(peerId, mapped)
+
+      // Attempt ICE restart on failure
+      if (cs === 'failed') {
+        const state = peerStatesRef.current.get(peerId)
+        if (state && !state.reconnecting) {
+          const isInitiator = localUidRef.current > peerId
+          if (isInitiator && pc.signalingState === 'stable') {
+            console.log(`[WebRTC] ICE failed with ${peerId} — attempting ICE restart`)
+            state.reconnecting = true
+            pc.restartIce()
+            // Re-create offer with ICE restart
+            pc.createOffer({ iceRestart: true })
+              .then(async (offer) => {
+                await pc.setLocalDescription(offer)
+                if (offer.sdp) {
+                  await sendOffer(roomIdRef.current, localUidRef.current, peerId, offer.sdp)
+                }
+              })
+              .catch((err) => console.error(`[WebRTC] ICE restart offer failed for ${peerId}:`, err))
+              .finally(() => {
+                if (state) state.reconnecting = false
+              })
+          }
+        }
+      }
     }
 
     pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed') {
+      const ics = pc.iceConnectionState
+      console.log(`[WebRTC] ICE connection state for ${peerId}: ${ics}`)
+      if (ics === 'failed') {
         updatePeerStatus(peerId, 'failed')
       }
+    }
+
+    pc.onicegatheringstatechange = () => {
+      console.log(`[WebRTC] ICE gathering state for ${peerId}: ${pc.iceGatheringState}`)
     }
 
     // Handle incoming DataChannel from the answerer side
@@ -159,7 +235,7 @@ export function useWebRTC({
     instanceId?: string,
   ) => {
     if (peerStatesRef.current.has(peerId)) return
-    if (!localUid || !roomId) return
+    if (!localUidRef.current || !roomIdRef.current) return
 
     const pc = createPeerConnection()
     const channel = createImageChannel(pc)
@@ -173,6 +249,9 @@ export function useWebRTC({
       unsubscribes,
       hasConnected: false,
       instanceId,
+      pendingCandidates: [],
+      remoteDescSet: false,
+      reconnecting: false,
     }
     peerStatesRef.current.set(peerId, state)
     syncPeerList()
@@ -180,18 +259,23 @@ export function useWebRTC({
     attachConnectionHandlers(peerId, pc)
     attachChannelHandlers(peerId, channel)
 
-    // ICE candidate handler
+    // ICE candidate handler — send our candidates to remote
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        sendCandidate(roomId, localUid, peerId, event.candidate).catch(console.error)
+        sendCandidate(roomIdRef.current, localUidRef.current, peerId, event.candidate).catch(console.error)
       }
     }
 
     // Listen for answer
-    const answerUnsub = listenForAnswer(roomId, localUid, peerId, async (answer) => {
+    const answerUnsub = listenForAnswer(roomIdRef.current, localUidRef.current, peerId, async (answer) => {
+      const currentState = peerStatesRef.current.get(peerId)
+      if (!currentState) return
       try {
         if (pc.signalingState === 'have-local-offer') {
+          console.log(`[WebRTC] Setting remote answer from ${peerId}`)
           await pc.setRemoteDescription(new RTCSessionDescription(answer))
+          currentState.remoteDescSet = true
+          await flushPendingCandidates(peerId)
         }
       } catch (err) {
         console.error(`[WebRTC] Failed to set remote answer for ${peerId}:`, err)
@@ -199,31 +283,37 @@ export function useWebRTC({
     })
     unsubscribes.push(answerUnsub)
 
-    // Listen for ICE candidates from remote
-    const candidatesUnsub = listenForCandidates(roomId, localUid, peerId, async (candidate) => {
+    // Listen for ICE candidates from remote — queue if remote desc not set yet
+    const candidatesUnsub = listenForCandidates(roomIdRef.current, localUidRef.current, peerId, async (candidate) => {
+      const currentState = peerStatesRef.current.get(peerId)
+      if (!currentState) return
       try {
-        if (pc.remoteDescription) {
+        if (currentState.remoteDescSet && pc.remoteDescription) {
           await pc.addIceCandidate(new RTCIceCandidate(candidate))
+        } else {
+          console.log(`[WebRTC] Queueing ICE candidate from ${peerId} (remote desc not set yet)`)
+          currentState.pendingCandidates.push(candidate)
         }
       } catch (err) {
-        console.error(`[WebRTC] Failed to add ICE candidate from ${peerId}:`, err)
+        console.warn(`[WebRTC] Failed to add ICE candidate from ${peerId}:`, err)
       }
     })
     unsubscribes.push(candidatesUnsub)
 
     // Create and send offer
     try {
-      await clearSignalingOutbox(roomId, localUid, peerId).catch(() => undefined)
+      await clearSignalingOutbox(roomIdRef.current, localUidRef.current, peerId).catch(() => undefined)
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       if (offer.sdp) {
-        await sendOffer(roomId, localUid, peerId, offer.sdp)
+        console.log(`[WebRTC] Sending offer to ${peerId}`)
+        await sendOffer(roomIdRef.current, localUidRef.current, peerId, offer.sdp)
       }
     } catch (err) {
       console.error(`[WebRTC] Failed to create offer for ${peerId}:`, err)
       updatePeerStatus(peerId, 'failed')
     }
-  }, [roomId, localUid, syncPeerList, attachConnectionHandlers, attachChannelHandlers, updatePeerStatus])
+  }, [syncPeerList, attachConnectionHandlers, attachChannelHandlers, updatePeerStatus, flushPendingCandidates])
 
   const respondToPeer = useCallback(async (
     peerId: string,
@@ -232,7 +322,7 @@ export function useWebRTC({
     instanceId?: string,
   ) => {
     if (peerStatesRef.current.has(peerId)) return
-    if (!localUid || !roomId) return
+    if (!localUidRef.current || !roomIdRef.current) return
 
     const pc = createPeerConnection()
     const unsubscribes: Unsubscribe[] = []
@@ -245,45 +335,59 @@ export function useWebRTC({
       unsubscribes,
       hasConnected: false,
       instanceId,
+      pendingCandidates: [],
+      remoteDescSet: false,
+      reconnecting: false,
     }
     peerStatesRef.current.set(peerId, state)
     syncPeerList()
 
     attachConnectionHandlers(peerId, pc)
 
-    // ICE candidate handler
+    // ICE candidate handler — send our candidates to remote
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        sendCandidate(roomId, localUid, peerId, event.candidate).catch(console.error)
+        sendCandidate(roomIdRef.current, localUidRef.current, peerId, event.candidate).catch(console.error)
       }
     }
 
-    // Listen for ICE candidates from remote
-    const candidatesUnsub = listenForCandidates(roomId, localUid, peerId, async (candidate) => {
+    // Listen for ICE candidates from remote — queue if remote desc not set yet
+    const candidatesUnsub = listenForCandidates(roomIdRef.current, localUidRef.current, peerId, async (candidate) => {
+      const currentState = peerStatesRef.current.get(peerId)
+      if (!currentState) return
       try {
-        if (pc.remoteDescription) {
+        if (currentState.remoteDescSet && pc.remoteDescription) {
           await pc.addIceCandidate(new RTCIceCandidate(candidate))
+        } else {
+          console.log(`[WebRTC] Queueing ICE candidate from ${peerId} (remote desc not set yet)`)
+          currentState.pendingCandidates.push(candidate)
         }
       } catch (err) {
-        console.error(`[WebRTC] Failed to add ICE candidate from ${peerId}:`, err)
+        console.warn(`[WebRTC] Failed to add ICE candidate from ${peerId}:`, err)
       }
     })
     unsubscribes.push(candidatesUnsub)
 
     // Set remote offer and create answer
     try {
-      await clearSignalingOutbox(roomId, localUid, peerId).catch(() => undefined)
+      await clearSignalingOutbox(roomIdRef.current, localUidRef.current, peerId).catch(() => undefined)
+      console.log(`[WebRTC] Setting remote offer from ${peerId} and creating answer`)
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
+      state.remoteDescSet = true
+      // Flush any candidates that arrived before we set remote description
+      await flushPendingCandidates(peerId)
+
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       if (answer.sdp) {
-        await sendAnswer(roomId, localUid, peerId, answer.sdp)
+        console.log(`[WebRTC] Sending answer to ${peerId}`)
+        await sendAnswer(roomIdRef.current, localUidRef.current, peerId, answer.sdp)
       }
     } catch (err) {
       console.error(`[WebRTC] Failed to respond to offer from ${peerId}:`, err)
       updatePeerStatus(peerId, 'failed')
     }
-  }, [roomId, localUid, syncPeerList, attachConnectionHandlers, updatePeerStatus])
+  }, [syncPeerList, attachConnectionHandlers, updatePeerStatus, flushPendingCandidates])
 
   // Tear down a single peer connection
   const destroyPeer = useCallback((peerId: string) => {

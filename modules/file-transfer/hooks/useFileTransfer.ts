@@ -87,11 +87,15 @@ export function useFileTransfer({
     }).catch(console.error)
   }, [roomId, hasLoadedDB])
 
-  // Handle incoming DataChannel messages
+  // Handle incoming DataChannel messages — look up receiver at call time (not captured in closure)
   const handleMessage = useCallback((peerId: string, event: MessageEvent) => {
     const parsed = parseIncomingMessage(event.data)
+    // Always read from ref at call time to avoid stale closure
     const receiver = fileReceiversRef.current.get(peerId)
-    if (!receiver) return
+    if (!receiver) {
+      console.warn(`[useFileTransfer] No receiver found for peer ${peerId} — message dropped`)
+      return
+    }
 
     if (parsed.kind === 'control') {
       receiver.handleControlMessage(parsed.message)
@@ -298,6 +302,10 @@ export function useFileTransfer({
             })
             console.log(`[useFileTransfer] Transfer completed for ${transferId}`)
             updateTransfer(transferId, { status: 'completed', progress: 100 })
+            // Remove the completed sent transfer after a short delay so sender's UI clears
+            setTimeout(() => {
+              setTransfers((prev) => prev.filter((t) => t.id !== transferId))
+            }, 2000)
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') {
               console.warn(`[useFileTransfer] Transfer cancelled for ${transferId}`)

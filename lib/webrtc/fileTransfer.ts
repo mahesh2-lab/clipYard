@@ -260,28 +260,36 @@ export async function sendFile({
 /**
  * Returns a promise that resolves when the DataChannel's bufferedAmount
  * drops below the threshold, using the `bufferedamountlow` event.
+ * Times out after 30 seconds to prevent hanging on a stalled channel.
  */
 function waitForBufferDrain(channel: RTCDataChannel, maxBufferedAmount: number): Promise<void> {
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     channel.bufferedAmountLowThreshold = maxBufferedAmount / 2
-    const handler = () => {
+
+    let settled = false
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearInterval(pollTimer)
+      clearTimeout(timeoutTimer)
       channel.removeEventListener('bufferedamountlow', handler)
-      resolve()
+      fn()
     }
+
+    const handler = () => settle(resolve)
     channel.addEventListener('bufferedamountlow', handler)
 
-    // Fallback: poll in case the event doesn't fire (some browser edge cases)
-    const fallback = setInterval(() => {
+    // Fallback: poll in case the bufferedamountlow event doesn't fire (some browser edge cases)
+    const pollTimer = setInterval(() => {
       if (channel.bufferedAmount <= maxBufferedAmount / 2) {
-        clearInterval(fallback)
-        channel.removeEventListener('bufferedamountlow', handler)
-        resolve()
+        settle(resolve)
       }
     }, 100)
 
-    // Safety: clear poll on resolution
-    const originalResolve = resolve
-    void originalResolve // consumed by the closure above
+    // Safety timeout: if drain takes >30s the channel is effectively dead
+    const timeoutTimer = setTimeout(() => {
+      settle(() => reject(new Error('DataChannel buffer drain timed out after 30s')))
+    }, 30_000)
   })
 }
 

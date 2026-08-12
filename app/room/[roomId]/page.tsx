@@ -686,7 +686,9 @@ export default function RoomPage() {
     const seen = new Set<string>()
     return transfers
       .filter((transfer) => {
+        // Only show completed files that were received FROM a peer, not sent by us
         if (transfer.status !== 'completed') return false
+        if (transfer.direction !== 'received') return false
         const key = transfer.batchId || `${transfer.fileName}-${transfer.fileSize}`
         if (seen.has(key)) return false
         seen.add(key)

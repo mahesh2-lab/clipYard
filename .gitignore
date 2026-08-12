@@ -19,3 +19,5 @@ node_modules
 # agents
 .agents/
 .claude/
+.gemini/
+.cursor/

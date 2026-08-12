@@ -17,27 +17,7 @@ export async function POST(request: Request) {
     ])
 
     const meta = metaSnapshot.val()
-    if (!meta) {
-      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
-    }
-
-    const now = Date.now()
-    const createdAt = typeof meta.createdAt === 'number' ? meta.createdAt : 0
-    const expiresAt = typeof meta.expiresAt === 'number' ? meta.expiresAt : (createdAt ? createdAt + 24 * 60 * 60 * 1000 : 0)
-
-    if ((expiresAt > 0 && now > expiresAt) || meta.status === 'closed') {
-      // Room expired or closed — delete from Firebase Realtime Database
-      try {
-        await database.ref(`rooms/${roomId}`).remove()
-      } catch (e) {
-        console.error(`Failed to delete expired room ${roomId}:`, e)
-      }
-      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 410 })
-    }
-
-    if (meta.status !== 'open') {
-      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
-    }
+    if (!meta || meta.status !== 'open') return NextResponse.json({ error: 'That room is unavailable' }, { status: 404 })
 
     const presence = presenceSnapshot.val() || {}
     const activeUsersCount = Object.keys(presence).length

@@ -32,24 +32,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ room
   const roomSnapshot = await database.ref(`rooms/${roomId}`).get()
   const room = roomSnapshot.val()
   if (!room?.meta) {
-    return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
+    return NextResponse.json({ error: 'That room is unavailable' }, { status: 404 })
+  }
+  if (room.meta.status === 'closed') {
+    return NextResponse.json({ roomId, status: 'closed', text: '', people: 0, role: payload.role, devices: [] })
   }
 
   const now = Date.now()
-  const createdAt = typeof room.meta.createdAt === 'number' ? room.meta.createdAt : 0
-  const expiresAt = typeof room.meta.expiresAt === 'number' ? room.meta.expiresAt : (createdAt ? createdAt + 24 * 60 * 60 * 1000 : 0)
-
-  if ((expiresAt > 0 && now > expiresAt) || room.meta.status === 'closed') {
-    if (expiresAt > 0 && now > expiresAt) {
-      try {
-        await database.ref(`rooms/${roomId}`).remove()
-      } catch (e) {
-        console.error(`Failed to delete expired room ${roomId}:`, e)
-      }
-      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 410 })
-    }
-    return NextResponse.json({ roomId, status: 'closed', text: '', people: 0, role: payload.role, devices: [] })
-  }
   const presence = (room.presence || {}) as Record<string, any>
   const activeEntries = Object.entries(presence).filter(([_, entry]) => {
     const lastSeen = typeof entry?.lastSeen === 'number' ? entry.lastSeen : 0
@@ -90,7 +79,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ro
     const roomSnapshot = await database.ref(`rooms/${roomId}/meta`).get()
     const meta = roomSnapshot.val()
     if (!meta || meta.status === 'closed') {
-      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
+      return NextResponse.json({ error: 'That room is unavailable' }, { status: 404 })
     }
 
     await database.ref(`rooms/${roomId}/clip`).update({

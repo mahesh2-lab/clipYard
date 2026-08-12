@@ -26,14 +26,11 @@ export async function POST(request: Request) {
         { error: "Room already exists" },
         { status: 409 },
       );
-    const now = Date.now();
-    const expiresAt = now + 24 * 60 * 60 * 1000;
     await database.ref(`rooms/${roomId}`).set({
       meta: {
         hostUid,
         status: "open",
         createdAt: ServerValue.TIMESTAMP,
-        expiresAt,
         lastSeen: ServerValue.TIMESTAMP,
       },
       clip: { text: encryptRoomText(""), updatedAt: ServerValue.TIMESTAMP, updatedBy: hostUid },

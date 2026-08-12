@@ -610,7 +610,7 @@ export default function RoomPage() {
 
   const [text, setText] = useState('')
   const [debouncedText] = useDebounce(text, 1000)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'closed' | 'error' | 'expired'>('loading')
+  const [status, setStatus] = useState<'loading' | 'ready' | 'closed' | 'error'>('loading')
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'offline'>('connecting')
   const [role, setRole] = useState<'host' | 'participant'>('participant')
   const [saved, setSaved] = useState(true)
@@ -841,13 +841,12 @@ export default function RoomPage() {
       lastKnownUpdatedAtRef.current = updatedAt
     }
 
-    function handleStatus(roomStatus: 'open' | 'closed') {
+    function handleStatus(status: 'open' | 'closed') {
       if (!alive) return
-      if (roomStatus === 'closed') {
+      if (status === 'closed') {
         clearStoredHostFingerprint(roomId)
         clearCachedToken(roomId)
-        setStatus('expired')
-        setNotice('This room is expired and no longer exists.')
+        setStatus('closed')
       }
     }
 
@@ -948,27 +947,10 @@ export default function RoomPage() {
           sendPresence(roomId, payload.token, fingerprintRef.current, deviceLabelRef.current, userName ?? '', instanceId)
             .catch(() => setConnection('offline'))
         }, 5000)
-      } catch (error: any) {
+      } catch (error) {
         if (!alive) return
-        const isExpired = Boolean(
-          error?.expired ||
-          error?.status === 404 ||
-          error?.status === 410 ||
-          (typeof error?.message === 'string' && (
-            error.message.toLowerCase().includes('expired') ||
-            error.message.toLowerCase().includes('unavailable') ||
-            error.message.toLowerCase().includes('closed')
-          ))
-        )
-        if (isExpired) {
-          clearStoredHostFingerprint(roomId)
-          clearCachedToken(roomId)
-          setStatus('expired')
-          setNotice('This room is expired and no longer exists.')
-        } else {
-          setStatus('error')
-          setNotice(error instanceof Error ? error.message : 'Unable to connect to room')
-        }
+        setStatus('error')
+        setNotice(error instanceof Error ? error.message : 'Unable to connect')
       }
     }
 
@@ -1209,112 +1191,29 @@ export default function RoomPage() {
     )
   }
 
-  if (status === 'expired' || status === 'closed') {
+  if (status === 'error' || status === 'closed') {
     return (
       <Shell>
-        <div style={{ maxWidth: '420px', textAlign: 'center', padding: '0 16px' }}>
-          <div
-            style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--cy-surface-container-high)',
-              display: 'grid',
-              placeItems: 'center',
-              margin: '0 auto 20px',
-              boxShadow: '0 0 16px -4px var(--cy-warning)',
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ color: 'var(--cy-warning)', fontSize: '24px' }}>
-              timer_off
-            </span>
+        <div style={{ maxWidth: '400px', textAlign: 'center', padding: '0 16px' }}>
+          <div style={{
+            width: '48px', height: '48px', borderRadius: '50%',
+            backgroundColor: 'var(--cy-surface-container-high)', display: 'grid', placeItems: 'center',
+            margin: '0 auto 20px',
+          }}>
+            <span className="material-symbols-outlined" style={{ color: 'var(--cy-text-muted)', fontSize: '20px' }}>wifi_off</span>
           </div>
-          <h1
-            style={{
-              fontFamily: 'Hanken Grotesk, sans-serif',
-              fontSize: '24px',
-              fontWeight: 700,
-              color: 'var(--cy-text)',
-              marginBottom: '12px',
-            }}
-          >
-            This room is expired
+          <h1 style={{ fontFamily: 'Hanken Grotesk, sans-serif', fontSize: '24px', fontWeight: 700, color: 'var(--cy-text)', marginBottom: '12px' }}>
+            Room unavailable
           </h1>
-          <p style={{ color: 'var(--cy-text-secondary)', marginBottom: '28px', fontSize: '14px', lineHeight: '20px' }}>
-            {notice || 'Rooms automatically expire and are deleted from the database after 24 hours.'}
+          <p style={{ color: 'var(--cy-text-secondary)', marginBottom: '28px' }}>
+            {notice || 'This room was closed or no longer exists.'}
           </p>
           <button
-            id="back-home-btn"
             onClick={() => router.push('/')}
-            style={{ ...S.copyBtn, flex: 'none', width: '100%', padding: '12px 20px' }}
+            style={{ ...S.copyBtn, flex: 'none' }}
           >
             Back to home
           </button>
-        </div>
-      </Shell>
-    )
-  }
-
-  if (status === 'error') {
-    return (
-      <Shell>
-        <div style={{ maxWidth: '420px', textAlign: 'center', padding: '0 16px' }}>
-          <div
-            style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--cy-surface-container-high)',
-              display: 'grid',
-              placeItems: 'center',
-              margin: '0 auto 20px',
-              boxShadow: '0 0 16px -4px var(--cy-error)',
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ color: 'var(--cy-error)', fontSize: '24px' }}>
-              sync_problem
-            </span>
-          </div>
-          <h1
-            style={{
-              fontFamily: 'Hanken Grotesk, sans-serif',
-              fontSize: '24px',
-              fontWeight: 700,
-              color: 'var(--cy-text)',
-              marginBottom: '12px',
-            }}
-          >
-            Connection error
-          </h1>
-          <p style={{ color: 'var(--cy-text-secondary)', marginBottom: '28px', fontSize: '14px', lineHeight: '20px' }}>
-            {notice || 'Something went wrong while connecting to the room.'}
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
-            <button
-              id="reload-btn"
-              onClick={() => window.location.reload()}
-              style={{
-                ...S.copyBtn,
-                flex: 'none',
-                width: '100%',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                padding: '12px 20px',
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>refresh</span>
-              <span>Reload</span>
-            </button>
-            <button
-              id="back-home-secondary-btn"
-              onClick={() => router.push('/')}
-              style={{ ...S.clearBtn, flex: 'none', width: '100%', padding: '12px 20px' }}
-            >
-              Back to home
-            </button>
-          </div>
         </div>
       </Shell>
     )

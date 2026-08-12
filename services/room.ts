@@ -369,13 +369,7 @@ export async function getRoomToken(
     )
     .then(async (response) => {
       const nextPayload = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const errorMsg = nextPayload.error || (response.status === 404 || response.status === 410 ? 'This room is expired' : 'Unable to connect to room')
-        const err = new Error(errorMsg) as Error & { status?: number; expired?: boolean }
-        err.status = response.status
-        err.expired = Boolean(nextPayload.expired || response.status === 404 || response.status === 410 || errorMsg.toLowerCase().includes('expired'))
-        throw err
-      }
+      if (!response.ok) throw new Error(nextPayload.error || 'That room is unavailable')
       const payload = nextPayload as RoomTokenPayload
       writeCachedToken(roomId, payload)
       return payload

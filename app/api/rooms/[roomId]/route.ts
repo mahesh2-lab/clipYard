@@ -1,9 +1,7 @@
-// app/api/rooms/[roomId]/route.ts
-
 import { NextResponse } from 'next/server'
 import { ServerValue } from 'firebase-admin/database'
 import { getFirebaseAdmin } from '@/lib/firebase-admin'
-import { PRESENCE_LIFESPAN_MS } from '@/lib/presence'
+import { PRESENCE_LIFESPAN_MS, isRoomExpired } from '@/lib/presence'
 import { sanitizeClipboard } from '@/lib/clipboard'
 import { verifyRoomToken } from '@/lib/room-token'
 import { decryptRoomText, encryptRoomText } from '@/lib/room-data'
@@ -32,10 +30,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ room
   const roomSnapshot = await database.ref(`rooms/${roomId}`).get()
   const room = roomSnapshot.val()
   if (!room?.meta) {
-    return NextResponse.json({ error: 'That room is unavailable' }, { status: 404 })
+    return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
   }
+
+  if (isRoomExpired(room.meta.createdAt)) {
+    await database.ref(`rooms/${roomId}`).remove().catch(() => undefined)
+    return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 410 })
+  }
+
   if (room.meta.status === 'closed') {
-    return NextResponse.json({ roomId, status: 'closed', text: '', people: 0, role: payload.role, devices: [] })
+    return NextResponse.json({ roomId, status: 'closed', expired: true, text: '', people: 0, role: payload.role, devices: [] })
   }
 
   const now = Date.now()
@@ -78,8 +82,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ro
     const { database } = getFirebaseAdmin()
     const roomSnapshot = await database.ref(`rooms/${roomId}/meta`).get()
     const meta = roomSnapshot.val()
-    if (!meta || meta.status === 'closed') {
-      return NextResponse.json({ error: 'That room is unavailable' }, { status: 404 })
+    if (!meta || meta.status === 'closed' || isRoomExpired(meta.createdAt)) {
+      if (isRoomExpired(meta?.createdAt)) {
+        await database.ref(`rooms/${roomId}`).remove().catch(() => undefined)
+      }
+      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
     }
 
     await database.ref(`rooms/${roomId}/clip`).update({

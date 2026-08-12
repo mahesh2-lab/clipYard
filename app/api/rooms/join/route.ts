@@ -1,9 +1,8 @@
-// app/api/rooms/join/route.ts
-
 import { NextResponse } from 'next/server'
 import { getFirebaseAdmin, mintRoomAuthToken } from '@/lib/firebase-admin'
 import { isValidRoomId, normalizeRoomId } from '@/lib/clipboard'
 import { signRoomToken } from '@/lib/room-token'
+import { isRoomExpired } from '@/lib/presence'
 
 export async function POST(request: Request) {
   try {
@@ -17,7 +16,19 @@ export async function POST(request: Request) {
     ])
 
     const meta = metaSnapshot.val()
-    if (!meta || meta.status !== 'open') return NextResponse.json({ error: 'That room is unavailable' }, { status: 404 })
+    if (!meta) {
+      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
+    }
+
+    if (isRoomExpired(meta.createdAt)) {
+      // Room has exceeded 24 hours — delete from Firebase
+      await database.ref(`rooms/${roomId}`).remove().catch(() => undefined)
+      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 410 })
+    }
+
+    if (meta.status !== 'open') {
+      return NextResponse.json({ error: 'This room is expired', expired: true }, { status: 404 })
+    }
 
     const presence = presenceSnapshot.val() || {}
     const activeUsersCount = Object.keys(presence).length

@@ -784,10 +784,18 @@ export default function RoomPage() {
         if (!alive) return
         const statusCode = error instanceof Error && 'status' in error
           ? Number((error as Error & { status?: number }).status) : 0
-        if (statusCode === 404) {
+        const msg = error instanceof Error ? error.message : 'Unable to connect'
+        const isExpired = statusCode === 404 || statusCode === 410 ||
+          msg.toLowerCase().includes('expired') ||
+          msg.toLowerCase().includes('unavailable') ||
+          msg.toLowerCase().includes('closed') ||
+          msg.toLowerCase().includes('not found')
+
+        if (isExpired) {
           clearStoredHostFingerprint(roomId)
           clearCachedToken(roomId)
           setStatus('closed')
+          setNotice('This room is expired')
           return
         }
         setConnection('offline')
@@ -949,8 +957,23 @@ export default function RoomPage() {
         }, 5000)
       } catch (error) {
         if (!alive) return
-        setStatus('error')
-        setNotice(error instanceof Error ? error.message : 'Unable to connect')
+        const statusCode = error instanceof Error && 'status' in error
+          ? Number((error as Error & { status?: number }).status) : 0
+        const expired = error instanceof Error && 'expired' in error
+          ? Boolean((error as Error & { expired?: boolean }).expired) : false
+        const msg = error instanceof Error ? error.message : 'Unable to connect'
+        const isExpired = expired || statusCode === 404 || statusCode === 410 ||
+          msg.toLowerCase().includes('expired')
+
+        if (isExpired) {
+          clearStoredHostFingerprint(roomId)
+          clearCachedToken(roomId)
+          setStatus('closed')
+          setNotice('This room is expired')
+        } else {
+          setStatus('error')
+          setNotice(msg)
+        }
       }
     }
 
@@ -1191,29 +1214,98 @@ export default function RoomPage() {
     )
   }
 
-  if (status === 'error' || status === 'closed') {
+  /* ── Room expired ── */
+  if (status === 'closed') {
     return (
       <Shell>
-        <div style={{ maxWidth: '400px', textAlign: 'center', padding: '0 16px' }}>
+        <div style={{ maxWidth: '420px', textAlign: 'center', padding: '0 16px' }}>
           <div style={{
-            width: '48px', height: '48px', borderRadius: '50%',
-            backgroundColor: 'var(--cy-surface-container-high)', display: 'grid', placeItems: 'center',
-            margin: '0 auto 20px',
+            width: '64px', height: '64px', borderRadius: '50%',
+            backgroundColor: 'color-mix(in srgb, var(--cy-warning) 12%, transparent)',
+            border: '1.5px solid color-mix(in srgb, var(--cy-warning) 30%, transparent)',
+            display: 'grid', placeItems: 'center',
+            margin: '0 auto 24px',
           }}>
-            <span className="material-symbols-outlined" style={{ color: 'var(--cy-text-muted)', fontSize: '20px' }}>wifi_off</span>
+            <span className="material-symbols-outlined" style={{ color: 'var(--cy-warning)', fontSize: '28px' }}>
+              timer_off
+            </span>
           </div>
           <h1 style={{ fontFamily: 'Hanken Grotesk, sans-serif', fontSize: '24px', fontWeight: 700, color: 'var(--cy-text)', marginBottom: '12px' }}>
-            Room unavailable
+            This room has expired
           </h1>
-          <p style={{ color: 'var(--cy-text-secondary)', marginBottom: '28px' }}>
-            {notice || 'This room was closed or no longer exists.'}
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: 'var(--cy-text-secondary)', marginBottom: '8px', lineHeight: '20px' }}>
+            ClipYard rooms are automatically deleted after <strong style={{ color: 'var(--cy-text)' }}>24 hours</strong>.
+          </p>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: 'var(--cy-text-muted)', marginBottom: '32px', lineHeight: '20px' }}>
+            Create a new room to continue sharing.
           </p>
           <button
             onClick={() => router.push('/')}
-            style={{ ...S.copyBtn, flex: 'none' }}
+            style={{
+              ...S.copyBtn,
+              flex: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
           >
-            Back to home
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>home</span>
+            Back to Home
           </button>
+        </div>
+      </Shell>
+    )
+  }
+
+  /* ── Generic connection / server error ── */
+  if (status === 'error') {
+    return (
+      <Shell>
+        <div style={{ maxWidth: '420px', textAlign: 'center', padding: '0 16px' }}>
+          <div style={{
+            width: '64px', height: '64px', borderRadius: '50%',
+            backgroundColor: 'var(--cy-surface-container-high)',
+            border: '1.5px solid var(--cy-border)',
+            display: 'grid', placeItems: 'center',
+            margin: '0 auto 24px',
+          }}>
+            <span className="material-symbols-outlined" style={{ color: 'var(--cy-text-muted)', fontSize: '28px' }}>
+              wifi_off
+            </span>
+          </div>
+          <h1 style={{ fontFamily: 'Hanken Grotesk, sans-serif', fontSize: '24px', fontWeight: 700, color: 'var(--cy-text)', marginBottom: '12px' }}>
+            Connection failed
+          </h1>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: 'var(--cy-text-secondary)', marginBottom: '32px', lineHeight: '20px' }}>
+            {notice || 'Unable to connect. Check your internet connection and try again.'}
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                ...S.copyBtn,
+                flex: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>refresh</span>
+              Reload
+            </button>
+            <button
+              onClick={() => router.push('/')}
+              style={{
+                ...S.clearBtn,
+                flex: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              Back to Home
+            </button>
+          </div>
         </div>
       </Shell>
     )

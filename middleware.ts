@@ -115,7 +115,7 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
   h.set('Referrer-Policy', 'strict-origin-when-cross-origin')
 
   // Restrict browser feature access.
-  h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+  h.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
 
   // Enforce HTTPS for 1 year (only effective in production over HTTPS).
   h.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
@@ -130,6 +130,7 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: blob:",
+      "media-src 'self' data: blob:",
       "connect-src 'self' https://*.firebaseio.com https://*.firebasedatabase.app https://*.googleapis.com wss://*.firebaseio.com wss://*.firebasedatabase.app",
       "frame-src 'self' https://*.firebasedatabase.app https://*.firebaseio.com https://*.googleapis.com https://apis.google.com https://www.gstatic.com",
       "frame-ancestors 'none'",

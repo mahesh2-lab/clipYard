@@ -940,9 +940,10 @@ html.dark ::-webkit-scrollbar-thumb {
   background-color: var(--cy-surface-container);
 }
 
-
-
-
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 
 
 

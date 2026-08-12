@@ -139,11 +139,37 @@ export function setupRoomPresenceOnDisconnect(roomId: string) {
 
   const presenceRef = ref(database, `rooms/${roomId}/presence/${uid}`)
   const onDisconnectRef = onDisconnect(presenceRef)
-  onDisconnectRef.remove().catch((error) => {
-    console.error('Failed to register room presence onDisconnect', roomId, error)
-  })
+
+  // Firebase RTDB rules can take a moment to recognise a newly signed-in
+  // custom token. Retry the onDisconnect registration up to 3 times with
+  // exponential backoff so a transient PERMISSION_DENIED doesn't permanently
+  // skip the cleanup handler.
+  let cancelled = false
+  const delays = [0, 600, 1400]
+  const attempt = (index: number) => {
+    const delay = delays[index] ?? 0
+    const timer = setTimeout(() => {
+      if (cancelled) return
+      onDisconnectRef.remove().catch((error: unknown) => {
+        const isPermission = error instanceof Error &&
+          (error.message.includes('PERMISSION_DENIED') || error.message.includes('permission'))
+        if (isPermission && index < delays.length - 1) {
+          attempt(index + 1)
+        } else if (!isPermission) {
+          console.error('Failed to register room presence onDisconnect', roomId, error)
+        }
+        // If it's PERMISSION_DENIED on the last retry, silently drop it —
+        // the server-side presence cleanup will still expire via TTL.
+      })
+    }, delay)
+    return timer
+  }
+
+  const firstTimer = attempt(0)
 
   return () => {
+    cancelled = true
+    clearTimeout(firstTimer)
     onDisconnectRef.cancel().catch(() => undefined)
   }
 }

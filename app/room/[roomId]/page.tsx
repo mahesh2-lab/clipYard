@@ -619,6 +619,7 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const [roomIdCopied, setRoomIdCopied] = useState(false)
+  const [qrDialogOpen, setQrDialogOpen] = useState(false)
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
   const [fileWarning, setFileWarning] = useState<string | null>(null)
@@ -1561,56 +1562,7 @@ export default function RoomPage() {
                       )
                     })}
 
-                    {uploadingItems.length > 0 && receivedAttachments.length > 0 ? (
-                      <div style={S.mediaDivider} aria-hidden="true" />
-                    ) : null}
 
-                    {receivedAttachments.map((transfer) => {
-                      if (transfer.category === 'image' && transfer.objectUrl) {
-                        return (
-                          <div
-                            key={transfer.id}
-                            className="cy-image-slot"
-                          >
-                            <div className="cy-slot-popover" role="tooltip" aria-hidden="true">
-                              <img
-                                src={transfer.objectUrl}
-                                alt={transfer.fileName}
-                                className="cy-slot-popover-img"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              style={S.mediaThumbButton}
-                              onClick={() => openImagePreview(transfer)}
-                              aria-label={`Preview ${transfer.fileName}`}
-                            >
-                              <img src={transfer.objectUrl} alt={transfer.fileName} style={S.mediaThumbImage} />
-                            </button>
-                          </div>
-                        )
-                      }
-
-                      if (transfer.category === 'audio') {
-                        return (
-                          <AudioAttachmentItem
-                            key={transfer.id}
-                            transfer={transfer}
-                            onOpenDialog={(t, d, initTime) =>
-                              setActiveAudioDialog({ transfer: t, audioData: d, initialTime: initTime })
-                            }
-                          />
-                        )
-                      }
-
-                      return (
-                        <DocumentAttachmentItem
-                          key={transfer.id}
-                          transfer={transfer}
-                          onDownload={downloadFile}
-                        />
-                      )
-                    })}
                   </div>
                 </div>
 
@@ -1855,9 +1807,42 @@ export default function RoomPage() {
 
           {/* Room Info */}
           <div style={S.sideCardAlt}>
-            <h3 style={S.sideCardTitle}>
-              <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--cy-text-secondary)' }}>info</span>
-              Room Info
+            <h3 style={{ ...S.sideCardTitle, justifyContent: 'space-between' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--cy-text-secondary)' }}>info</span>
+                Room Info
+              </span>
+              <button
+                type="button"
+                id="qr-dialog-trigger"
+                onClick={() => setQrDialogOpen(true)}
+                title="Scan QR to join this room"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '4px',
+                  border: '1.5px solid var(--cy-border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--cy-text-secondary)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  transition: 'background-color 0.15s ease, color 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--cy-surface-container)'
+                  e.currentTarget.style.color = 'var(--cy-text)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                  e.currentTarget.style.color = 'var(--cy-text-secondary)'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>qr_code_2</span>
+              </button>
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={S.infoRow}>
@@ -1881,8 +1866,142 @@ export default function RoomPage() {
             </div>
           </div>
 
-          {/* QR Code */}
-          <QrCard roomUrl={roomUrl} />
+          {/* Received Files Box */}
+          <div style={{ ...S.qrCard, alignItems: 'stretch' }}>
+            <h4 style={{
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: '11px',
+              letterSpacing: '0.08em',
+              fontWeight: 500,
+              color: 'var(--cy-text-secondary)',
+              textTransform: 'uppercase' as const,
+              marginBottom: receivedAttachments.length > 0 ? '12px' : '0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>folder_open</span>
+              Received Files
+              {receivedAttachments.length > 0 && (
+                <span style={{
+                  marginLeft: 'auto',
+                  backgroundColor: 'var(--cy-surface-container)',
+                  border: '1px solid var(--cy-border)',
+                  borderRadius: '9999px',
+                  padding: '1px 7px',
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  color: 'var(--cy-text-muted)',
+                }}>{receivedAttachments.length}</span>
+              )}
+            </h4>
+
+            {receivedAttachments.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '32px', color: 'var(--cy-border)', display: 'block', marginBottom: '8px' }}>inbox</span>
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: 'var(--cy-text-muted)', letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>No files received yet</span>
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, 1fr)',
+                gap: '5px',
+              }}>
+                {receivedAttachments.map((transfer) => {
+                  const isImage = transfer.category === 'image' && transfer.objectUrl
+                  const isAudio = transfer.category === 'audio'
+                  const ext = transfer.fileName.split('.').pop()?.slice(0, 4).toUpperCase() ?? 'FILE'
+
+                  // Audio gets its own component so it can decode + open the player dialog
+                  if (isAudio) {
+                    return (
+                      <SidebarAudioCell
+                        key={transfer.id}
+                        transfer={transfer}
+                        onOpenDialog={(t, d, initTime) =>
+                          setActiveAudioDialog({ transfer: t, audioData: d, initialTime: initTime })
+                        }
+                      />
+                    )
+                  }
+
+                  return (
+                    <button
+                      key={transfer.id}
+                      type="button"
+                      onClick={() => {
+                        if (isImage) openImagePreview(transfer)
+                        else downloadFile(transfer)
+                      }}
+                      title={transfer.fileName}
+                      aria-label={isImage ? `Preview ${transfer.fileName}` : `Download ${transfer.fileName}`}
+                      style={{
+                        position: 'relative' as const,
+                        width: '100%',
+                        aspectRatio: '1 / 1',
+                        borderRadius: '5px',
+                        border: '1.5px solid var(--cy-border)',
+                        backgroundColor: 'var(--cy-surface-white)',
+                        overflow: 'hidden',
+                        padding: 0,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column' as const,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '2px',
+                        transition: 'border-color 0.15s ease, transform 0.15s ease',
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--cy-primary)'
+                        e.currentTarget.style.transform = 'scale(1.06)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--cy-border)'
+                        e.currentTarget.style.transform = 'scale(1)'
+                      }}
+                    >
+                      {isImage ? (
+                        <img
+                          src={transfer.objectUrl!}
+                          alt={transfer.fileName}
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            display: 'block',
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <span
+                            className="material-symbols-outlined"
+                            style={{ fontSize: '18px', color: 'var(--cy-text-secondary)' }}
+                          >
+                            description
+                          </span>
+                          <span style={{
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: '7px',
+                            fontWeight: 700,
+                            letterSpacing: '0.04em',
+                            color: 'var(--cy-text-muted)',
+                            textTransform: 'uppercase' as const,
+                            lineHeight: 1,
+                          }}>
+                            {ext}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
         </div>
       </main>
@@ -1923,6 +2042,47 @@ export default function RoomPage() {
           }}
           onClose={() => setCameraOpen(false)}
         />
+      ) : null}
+
+      {/* QR Code Dialog */}
+      {qrDialogOpen ? (
+        <div
+          style={S.mediaDialogOverlay}
+          onClick={() => setQrDialogOpen(false)}
+        >
+          <div
+            style={{
+              ...S.mediaDialogBox,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '16px',
+              padding: '24px',
+              minWidth: '260px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              style={S.mediaDialogClose}
+              onClick={() => setQrDialogOpen(false)}
+              aria-label="Close QR dialog"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
+            </button>
+            <span style={{ ...S.qrTitle, marginBottom: '0' }}>Scan to Join</span>
+            <QrCard roomUrl={roomUrl} />
+            <span style={{
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: '11px',
+              color: 'var(--cy-text-muted)',
+              letterSpacing: '0.04em',
+              textAlign: 'center',
+            }}>
+              {roomUrl}
+            </span>
+          </div>
+        </div>
       ) : null}
 
       {/* ── Footer ── */}
@@ -1988,29 +2148,255 @@ export default function RoomPage() {
 function QrCard({ roomUrl }: { roomUrl: string }) {
   const { theme } = useTheme()
   return (
-    <div style={S.qrCard}>
-      <span style={S.qrTitle}>Scan to Join</span>
-      <div style={{ ...S.qrFrame, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {roomUrl ? (
-          <QRCodeSVG
-            value={roomUrl}
-            size={176}
-            fgColor={theme === 'dark' ? '#78d8b9' : '#006a53'}
-            bgColor={theme === 'dark' ? '#1c1c1c' : '#ffffff'}
-            level="M"
-            style={{ width: '100%', height: '100%' }}
-          />
-        ) : (
-          <Image
-            src="/qr-placeholder.png"
-            alt="QR code to join this room"
-            width={176}
-            height={176}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        )}
-      </div>
+    <div style={{ ...S.qrFrame, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {roomUrl ? (
+        <QRCodeSVG
+          value={roomUrl}
+          size={176}
+          fgColor={theme === 'dark' ? '#78d8b9' : '#006a53'}
+          bgColor={theme === 'dark' ? '#1c1c1c' : '#ffffff'}
+          level="M"
+          style={{ width: '100%', height: '100%' }}
+        />
+      ) : (
+        <Image
+          src="/qr-placeholder.png"
+          alt="QR code to join this room"
+          width={176}
+          height={176}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      )}
     </div>
+  )
+}
+
+function SidebarFileRow({
+  transfer,
+  isAudio,
+  onAction,
+}: {
+  transfer: import('@/lib/webrtc/types').Transfer
+  isAudio: boolean
+  onAction: () => void
+}) {
+  const ext = transfer.fileName.split('.').pop()?.slice(0, 4).toUpperCase() ?? 'FILE'
+  return (
+    <button
+      type="button"
+      onClick={onAction}
+      title={transfer.fileName}
+      aria-label={isAudio ? `Download audio ${transfer.fileName}` : `Download ${transfer.fileName}`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        width: '100%',
+        padding: '7px 10px',
+        borderRadius: '6px',
+        border: '1.5px solid var(--cy-border)',
+        backgroundColor: 'var(--cy-surface-white)',
+        cursor: 'pointer',
+        textAlign: 'left' as const,
+        transition: 'background-color 0.15s ease, border-color 0.15s ease',
+        boxSizing: 'border-box' as const,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--cy-surface-container)'
+        e.currentTarget.style.borderColor = 'var(--cy-primary)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--cy-surface-white)'
+        e.currentTarget.style.borderColor = 'var(--cy-border)'
+      }}
+    >
+      {/* Icon badge */}
+      <span style={{
+        width: '32px',
+        height: '32px',
+        borderRadius: '6px',
+        backgroundColor: isAudio
+          ? 'color-mix(in srgb, var(--cy-primary) 12%, transparent)'
+          : 'var(--cy-surface-container)',
+        border: '1px solid var(--cy-border)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        <span
+          className="material-symbols-outlined"
+          style={{
+            fontSize: '16px',
+            color: isAudio ? 'var(--cy-primary)' : 'var(--cy-text-secondary)',
+          }}
+        >
+          {isAudio ? 'music_note' : 'description'}
+        </span>
+      </span>
+
+      {/* Name + type label */}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{
+          display: 'block',
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: '11px',
+          fontWeight: 500,
+          color: 'var(--cy-text)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          lineHeight: '1.3',
+        }}>
+          {transfer.fileName}
+        </span>
+        <span style={{
+          display: 'block',
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: '10px',
+          color: 'var(--cy-text-muted)',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase' as const,
+          lineHeight: '1.3',
+          marginTop: '1px',
+        }}>
+          {isAudio ? 'AUDIO' : ext}
+        </span>
+      </span>
+
+      {/* Action icon */}
+      <span
+        className="material-symbols-outlined"
+        style={{ fontSize: '16px', color: 'var(--cy-text-muted)', flexShrink: 0 }}
+      >
+        download
+      </span>
+    </button>
+  )
+}
+
+/* ── Sidebar audio grid cell — decodes audio then opens the player dialog ── */
+function SidebarAudioCell({
+  transfer,
+  onOpenDialog,
+}: {
+  transfer: import('@/lib/webrtc/types').Transfer
+  onOpenDialog: (
+    transfer: import('@/lib/webrtc/types').Transfer,
+    audioData: import('@/lib/audioWaveform').DecodedAudioData,
+    initialTime?: number,
+  ) => void
+}) {
+  const [audioData, setAudioData] = useState<import('@/lib/audioWaveform').DecodedAudioData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const audioUrl = useMemo(() => {
+    if (transfer.objectUrl) return transfer.objectUrl
+    if (transfer.blob) return URL.createObjectURL(transfer.blob)
+    return ''
+  }, [transfer.objectUrl, transfer.blob])
+
+  useEffect(() => {
+    let alive = true
+    async function decode() {
+      try {
+        const { processAudioBlob } = await import('@/lib/audioWaveform')
+        let blob = transfer.blob
+        if (!blob && audioUrl) {
+          const resp = await fetch(audioUrl)
+          blob = await resp.blob()
+        }
+        if (!blob || !alive) return
+        const data = await processAudioBlob(blob, transfer.id || audioUrl)
+        if (!alive) return
+        setAudioData(data)
+      } catch (err) {
+        console.error('[SidebarAudioCell] decode failed', transfer.fileName, err)
+      } finally {
+        if (alive) setLoading(false)
+      }
+    }
+    decode()
+    return () => { alive = false }
+  }, [transfer.blob, transfer.id, audioUrl, transfer.fileName])
+
+  const handleClick = () => {
+    if (audioData) onOpenDialog(transfer, audioData, 0)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title={transfer.fileName}
+      aria-label={`Play audio ${transfer.fileName}`}
+      disabled={loading && !audioData}
+      style={{
+        position: 'relative' as const,
+        width: '100%',
+        aspectRatio: '1 / 1',
+        borderRadius: '5px',
+        border: '1.5px solid var(--cy-border)',
+        backgroundColor: 'color-mix(in srgb, var(--cy-primary) 8%, var(--cy-surface-white))',
+        overflow: 'hidden',
+        padding: 0,
+        cursor: loading && !audioData ? 'wait' : 'pointer',
+        display: 'flex',
+        flexDirection: 'column' as const,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '2px',
+        transition: 'border-color 0.15s ease, transform 0.15s ease',
+        flexShrink: 0,
+      }}
+      onMouseEnter={(e) => {
+        if (!loading || audioData) {
+          e.currentTarget.style.borderColor = 'var(--cy-primary)'
+          e.currentTarget.style.transform = 'scale(1.06)'
+        }
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'var(--cy-border)'
+        e.currentTarget.style.transform = 'scale(1)'
+      }}
+    >
+      {loading && !audioData ? (
+        /* Spinner while decoding */
+        <svg
+          width="18" height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="var(--cy-primary)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          style={{ animation: 'spin 0.9s linear infinite' }}
+          aria-hidden="true"
+        >
+          <path d="M12 2a10 10 0 0 1 10 10" />
+        </svg>
+      ) : (
+        <>
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: '18px', color: 'var(--cy-primary)' }}
+          >
+            {audioData ? 'play_circle' : 'music_note'}
+          </span>
+          <span style={{
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: '7px',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            color: 'var(--cy-primary)',
+            textTransform: 'uppercase' as const,
+            lineHeight: 1,
+            opacity: 0.7,
+          }}>
+            AUD
+          </span>
+        </>
+      )}
+    </button>
   )
 }
 

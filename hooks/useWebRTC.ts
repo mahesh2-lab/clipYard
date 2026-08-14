@@ -1,18 +1,4 @@
-/**
- * hooks/useWebRTC.ts
- *
- * Manages a WebRTC mesh for all participants in a ClipYard room.
- * Creates one RTCPeerConnection + RTCDataChannel per remote peer.
- *
- * Deterministic initiator rule: the peer with the lexicographically
- * greater UID creates the offer. This prevents duplicate connections.
- *
- * Robustness improvements:
- *  - ICE candidates are queued until setRemoteDescription() completes.
- *  - Failed connections trigger an ICE restart (re-offer).
- *  - Signaling is cleaned up after successful connection.
- */
-
+// WebRTC mesh manager for room participants
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
@@ -44,25 +30,18 @@ interface PeerState {
   status: PeerStatus
   peerName: string
   unsubscribes: Unsubscribe[]
-  /** Prevent processing stale offers after we already connected */
   hasConnected: boolean
-  /** Track the presence instance ID to detect reloads */
   instanceId?: string
-  /** ICE candidates buffered before setRemoteDescription completes */
   pendingCandidates: RTCIceCandidateInit[]
-  /** Whether remote description has been set (safe to add ICE candidates) */
   remoteDescSet: boolean
-  /** Whether a reconnect is currently in progress */
   reconnecting: boolean
 }
 
 export interface UseWebRTCOptions {
   roomId: string
   localUid: string
-  /** Presence entries keyed by uid. Used to discover peers. */
   presence: Record<string, { name?: string; sid?: string; [key: string]: unknown }>
   enabled?: boolean
-  /** Called when a DataChannel receives a message from any peer. */
   onMessage?: (peerId: string, event: MessageEvent) => void
 }
 
@@ -85,15 +64,13 @@ export function useWebRTC({
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
   const [peerList, setPeerList] = useState<WebRTCPeer[]>([])
-  /** Tracks which peers we've already initiated or responded to, to avoid double connections */
   const processedPeersRef = useRef(new Set<string>())
-  // Stable refs for roomId and localUid to use inside callbacks
   const roomIdRef = useRef(roomId)
   roomIdRef.current = roomId
   const localUidRef = useRef(localUid)
   localUidRef.current = localUid
 
-  // Update peer list state for consumers
+  // Sync peer list state for consumer components
   const syncPeerList = useCallback(() => {
     const list: WebRTCPeer[] = []
     for (const [peerId, state] of peerStatesRef.current) {
@@ -116,7 +93,7 @@ export function useWebRTC({
     }
   }, [syncPeerList])
 
-  // Set up the channel message handler
+  // Attach channel message and state handlers
   const attachChannelHandlers = useCallback((peerId: string, channel: RTCDataChannel) => {
     channel.onmessage = (event) => {
       onMessageRef.current?.(peerId, event)
@@ -127,7 +104,6 @@ export function useWebRTC({
         state.channel = channel
         updatePeerStatus(peerId, 'connected')
         console.log(`[WebRTC] DataChannel open with ${peerId}`)
-        // Clean up our signaling outbox once connected — no longer needed
         clearSignalingOutbox(roomIdRef.current, localUidRef.current, peerId).catch(() => undefined)
       }
     }
@@ -141,9 +117,7 @@ export function useWebRTC({
     }
   }, [updatePeerStatus])
 
-  /**
-   * Flush any queued ICE candidates for a peer after setRemoteDescription succeeds.
-   */
+  // Flush queued ICE candidates once remote description is set
   const flushPendingCandidates = useCallback(async (peerId: string) => {
     const state = peerStatesRef.current.get(peerId)
     if (!state || !state.remoteDescSet) return

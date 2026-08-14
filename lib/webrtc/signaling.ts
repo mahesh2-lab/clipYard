@@ -1,16 +1,3 @@
-/**
- * lib/webrtc/signaling.ts
- *
- * Firebase Realtime Database signaling layer for WebRTC.
- * Uses the existing Firebase client config and scoped listeners
- * to exchange SDP offers/answers and ICE candidates.
- *
- * Schema (Outbox Pattern using existing presence write permissions):
- *   rooms/{roomId}/presence/{fromUid}/signalingOutbox/{toUid}/offer   → SignalingOffer
- *   rooms/{roomId}/presence/{fromUid}/signalingOutbox/{toUid}/answer  → SignalingAnswer
- *   rooms/{roomId}/presence/{fromUid}/signalingOutbox/{toUid}/candidates/{pushId} → SignalingCandidate
- */
-
 'use client'
 
 import { getFirebaseServices } from '@/lib/firebase-client'
@@ -25,13 +12,10 @@ import {
 } from 'firebase/database'
 import type { SignalingOffer, SignalingAnswer, SignalingCandidate } from './types'
 
-// ─── Path helpers ───────────────────────────────────────────────────────────
-
+// Firebase signaling path helper
 function signalingPath(roomId: string, fromUid: string, toUid: string) {
   return `rooms/${roomId}/presence/${fromUid}/signalingOutbox/${toUid}`
 }
-
-// ─── Write operations ───────────────────────────────────────────────────────
 
 export async function clearSignalingOutbox(roomId: string, fromUid: string, toUid: string): Promise<void> {
   const { database } = getFirebaseServices()
@@ -46,8 +30,6 @@ export async function sendOffer(
   sdp: string,
 ): Promise<void> {
   const { database } = getFirebaseServices()
-
-
   const offerRef = ref(database, `${signalingPath(roomId, fromUid, toUid)}/offer`)
   await set(offerRef, { type: 'offer', sdp } satisfies SignalingOffer)
 }
@@ -59,7 +41,6 @@ export async function sendAnswer(
   sdp: string,
 ): Promise<void> {
   const { database } = getFirebaseServices()
-
   const answerRef = ref(database, `${signalingPath(roomId, fromUid, toUid)}/answer`)
   await set(answerRef, { type: 'answer', sdp } satisfies SignalingAnswer)
 }
@@ -79,12 +60,6 @@ export async function sendCandidate(
   } satisfies SignalingCandidate)
 }
 
-// ─── Listen operations (scoped to specific peer pair) ───────────────────────
-
-/**
- * Listen for an SDP offer sent TO localUid FROM remoteUid.
- * Path: rooms/{roomId}/presence/{remoteUid}/signalingOutbox/{localUid}/offer
- */
 export function listenForOffer(
   roomId: string,
   localUid: string,
@@ -101,10 +76,6 @@ export function listenForOffer(
   })
 }
 
-/**
- * Listen for an SDP answer sent TO localUid FROM remoteUid.
- * Path: rooms/{roomId}/presence/{remoteUid}/signalingOutbox/{localUid}/answer
- */
 export function listenForAnswer(
   roomId: string,
   localUid: string,
@@ -121,10 +92,6 @@ export function listenForAnswer(
   })
 }
 
-/**
- * Listen for ICE candidates sent TO localUid FROM remoteUid.
- * Path: rooms/{roomId}/presence/{remoteUid}/signalingOutbox/{localUid}/candidates/{pushId}
- */
 export function listenForCandidates(
   roomId: string,
   localUid: string,
@@ -144,31 +111,19 @@ export function listenForCandidates(
   })
 }
 
-
-
-// ─── Cleanup ────────────────────────────────────────────────────────────────
-
-/**
- * Remove all signaling data authored by this uid (both outgoing and
- * incoming references). Called when leaving a room.
- */
+// Cleanup signaling on disconnect
 export async function cleanupSignaling(roomId: string, uid: string): Promise<void> {
   const { database } = getFirebaseServices()
-  // Remove outgoing signaling outbox
   const outgoingRef = ref(database, `rooms/${roomId}/presence/${uid}/signalingOutbox`)
   await remove(outgoingRef).catch(() => undefined)
 }
 
-/**
- * Remove the signaling path between two specific peers.
- */
 export async function cleanupPeerSignaling(
   roomId: string,
   localUid: string,
   remoteUid: string,
 ): Promise<void> {
   const { database } = getFirebaseServices()
-  // Remove both directions
   await Promise.all([
     remove(ref(database, `${signalingPath(roomId, localUid, remoteUid)}`)).catch(() => undefined),
     remove(ref(database, `${signalingPath(roomId, remoteUid, localUid)}`)).catch(() => undefined),

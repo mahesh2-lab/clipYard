@@ -1,5 +1,3 @@
-//lib/firebase-client.ts
-
 'use client'
 
 import { getApp, getApps, initializeApp } from 'firebase/app'
@@ -28,9 +26,7 @@ export function getFirebaseServices() {
 export async function signInToFirebaseRoom(firebaseToken: string) {
   const { auth } = getFirebaseServices()
 
-  // Gracefully handle the "Database is closing/hidden" error thrown by
-  // Firebase RTDB when the browser tab is backgrounded during auth state
-  // changes. This is a transient teardown event, not a real failure.
+  // Ignore transient RTDB closing errors during tab focus switches
   const isClosingError = (err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err)
     return msg.toLowerCase().includes('closing') || msg.toLowerCase().includes('hidden')
@@ -46,11 +42,7 @@ export async function signInToFirebaseRoom(firebaseToken: string) {
       await user.getIdTokenResult(true)
     }
   } catch (err) {
-    if (isClosingError(err)) {
-      // Benign: tab was backgrounded, Firebase closed the connection.
-      // The next tab-focus will re-trigger the auth flow automatically.
-      return
-    }
+    if (isClosingError(err)) return
     throw err
   }
 }

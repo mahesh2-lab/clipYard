@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 
+// Site defaults
 const rawSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://example.com'
 const normalizedSiteUrl = rawSiteUrl.replace(/\/+$|\s+/g, '')
 const siteUrl = normalizedSiteUrl || 'https://example.com'
@@ -36,6 +37,7 @@ export const SITE_META = {
 
 const siteUrlObject = safeUrl(siteUrl)
 
+// Root metadata config for Next.js layout
 export function buildMetadata(): Metadata {
   return {
     title: {
@@ -63,10 +65,16 @@ export function buildMetadata(): Metadata {
         follow: true,
       },
     },
+    // Favicons & Apple Touch icons
     icons: {
-      icon: '/icon.svg',
+      icon: [
+        { url: '/icon.svg', type: 'image/svg+xml' },
+        { url: '/favicon.ico', sizes: 'any' },
+      ],
       shortcut: '/icon.svg',
-      apple: '/apple-icon.png',
+      apple: [
+        { url: '/apple-icon.png', sizes: '180x180', type: 'image/png' },
+      ],
       other: [
         {
           rel: 'icon',
@@ -108,13 +116,14 @@ export function buildMetadata(): Metadata {
     },
     verification: {
       google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
-      other: process.env.BING_SITE_VERIFICATION 
+      other: process.env.BING_SITE_VERIFICATION
         ? { 'msvalidate.01': process.env.BING_SITE_VERIFICATION }
         : undefined,
     },
   }
 }
 
+// Room-specific metadata (keep rooms private & unindexed)
 export function getRoomMetadata(roomId: string): Metadata {
   const title = `ClipYard room ${roomId}`
   const description = `Private ClipYard room ${roomId} for temporary text transfer between devices. This room is private and not indexed.`

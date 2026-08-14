@@ -1,22 +1,9 @@
 'use client'
 
-/**
- * services/room.ts
- *
- * Client-side room service. Encapsulates all API calls, token management,
- * and presence logic so page components stay thin and focused on rendering.
- *
- * All fetch calls include the device fingerprint header for server-side
- * correlation. The fingerprint is NEVER used as a sole auth mechanism —
- * it accompanies a properly signed JWT token on every request.
- */
-
 import { sanitizeClipboard, getRoomUrl, isValidRoomId, normalizeRoomId } from '@/lib/clipboard'
 import { getLocalFingerprint, getVisitorId } from '@/services/fingerprint'
 import { getFirebaseServices, signInToFirebaseRoom } from '@/lib/firebase-client'
 import { onDisconnect, onValue, ref } from 'firebase/database'
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 export type RoomRole = 'host' | 'participant'
 
@@ -44,8 +31,7 @@ export type RoomSnapshot = {
   devices?: Device[]
 }
 
-// ─── Token cache ─────────────────────────────────────────────────────────────
-
+// In-flight connection deduplication
 const pendingConnections = new Map<string, Promise<RoomTokenPayload>>()
 
 function readCachedToken(roomId: string): RoomTokenPayload | null {
@@ -65,8 +51,7 @@ export function clearCachedToken(roomId: string) {
   sessionStorage.removeItem(`clipboard-token-${roomId}`)
 }
 
-// ─── Host fingerprint persistence ────────────────────────────────────────────
-
+// Host fingerprint storage (preserves host role across refreshes)
 export function getStoredHostFingerprint(roomId: string): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem(`clipboard-host-fp-${roomId}`)
@@ -140,10 +125,7 @@ export function setupRoomPresenceOnDisconnect(roomId: string) {
   const presenceRef = ref(database, `rooms/${roomId}/presence/${uid}`)
   const onDisconnectRef = onDisconnect(presenceRef)
 
-  // Firebase RTDB rules can take a moment to recognise a newly signed-in
-  // custom token. Retry the onDisconnect registration up to 3 times with
-  // exponential backoff so a transient PERMISSION_DENIED doesn't permanently
-  // skip the cleanup handler.
+  // Retry on transient permission race after token auth
   let cancelled = false
   const delays = [0, 600, 1400]
   const attempt = (index: number) => {
@@ -158,8 +140,6 @@ export function setupRoomPresenceOnDisconnect(roomId: string) {
         } else if (!isPermission) {
           console.error('Failed to register room presence onDisconnect', roomId, error)
         }
-        // If it's PERMISSION_DENIED on the last retry, silently drop it —
-        // the server-side presence cleanup will still expire via TTL.
       })
     }, delay)
     return timer
@@ -174,11 +154,6 @@ export function setupRoomPresenceOnDisconnect(roomId: string) {
   }
 }
 
-/**
- * Subscribe specifically to presence child events for lower-latency updates
- * to participant lists. Calls `onPresence` with the full current presence map
- * whenever a child is added/changed/removed.
- */
 export function subscribeToRoomPresence(
   roomId: string,
   onPresence: (presence: RoomLiveState['presence']) => void,
@@ -186,8 +161,6 @@ export function subscribeToRoomPresence(
   const { database } = getFirebaseServices()
   const presenceRef = ref(database, `rooms/${roomId}/presence`)
 
-  // Listen to the whole presence node — this delivers the current map
-  // immediately and on every change (child added/changed/removed).
   const unsub = onValue(
     presenceRef,
     (snapshot) => {
@@ -202,8 +175,6 @@ export function subscribeToRoomPresence(
     try { unsub() } catch { /* ignore */ }
   }
 }
-
-// ─── Device label ────────────────────────────────────────────────────────────
 
 export function getDeviceLabel(): string {
   if (typeof navigator === 'undefined') return 'Unknown device'
@@ -226,13 +197,9 @@ export function getDeviceLabel(): string {
   return `${browser} on ${os}`
 }
 
-// ─── Participant placeholders (honest fallback) ───────────────────────────────
-
 export function getParticipantPlaceholders(count: number): string[] {
   return Array.from({ length: count }, (_, i) => `Participant ${i + 2}`)
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export { getRoomUrl, isValidRoomId, normalizeRoomId }
 
@@ -262,12 +229,6 @@ function authHeaders(token: string, fingerprint: string): Record<string, string>
   }
 }
 
-// ─── API calls ───────────────────────────────────────────────────────────────
-
-/**
- * Fetch a full room snapshot (text, presence, devices).
- * Throws a typed error with `.status` on non-2xx responses.
- */
 export async function fetchRoomSnapshot(
   roomId: string,
   token: string,
@@ -285,9 +246,6 @@ export async function fetchRoomSnapshot(
   return payload as RoomSnapshot
 }
 
-/**
- * Send a heartbeat to mark this device as active and update presence metadata.
- */
 export async function sendPresence(
   roomId: string,
   token: string,
@@ -303,10 +261,6 @@ export async function sendPresence(
   })
 }
 
-/**
- * Persist updated clipboard text to the server.
- * Returns true on success, throws on error.
- */
 export async function saveText(
   roomId: string,
   token: string,
@@ -322,9 +276,6 @@ export async function saveText(
   if (!response.ok) throw new Error(payload.error || 'Unable to save text')
 }
 
-/**
- * Close the room (host-only action).
- */
 export async function closeRoom(
   roomId: string,
   token: string,
@@ -338,9 +289,7 @@ export async function closeRoom(
   if (!response.ok) throw new Error(payload.error || 'Unable to close room')
 }
 
-/**
- * Leave the room as a participant (sends a keep-alive DELETE on page unload).
- */
+// Beacon cleanup when tab unloads
 export function sendLeaveBeacon(roomId: string, token: string, fingerprint: string) {
   const url = `/api/rooms/${roomId}?token=${encodeURIComponent(token)}`
   try {
@@ -350,17 +299,11 @@ export function sendLeaveBeacon(roomId: string, token: string, fingerprint: stri
       keepalive: true,
     })
   } catch {
-    // Best-effort; ignore errors on tab close.
+    // Best-effort cleanup on close
   }
 }
 
-/**
- * Obtain a signed room token. De-duplicates in-flight requests and reads from
- * sessionStorage cache. Also upgrades role to 'host' if the local fingerprint
- * matches a previously-stored host fingerprint (survives tab refresh).
- *
- * Enriches the join payload with the FingerprintJS visitorId when available.
- */
+// Fetch or reuse room token and check host role
 export async function getRoomToken(
   roomId: string,
   fingerprint: string,
@@ -371,7 +314,6 @@ export async function getRoomToken(
   if (!forceFresh) {
     const cached = readCachedToken(roomId)
     if (cached) {
-      // Re-apply host role from local storage if server returned stale participant token.
       if (cached.role !== 'host' && getStoredHostFingerprint(roomId) === fingerprint) {
         return { ...cached, role: 'host' }
       }
@@ -382,7 +324,6 @@ export async function getRoomToken(
     if (pending) return pending
   }
 
-  // Kick off FingerprintJS in the background — we won't block on it.
   const visitorIdPromise = getVisitorId()
 
   const request = visitorIdPromise
@@ -419,8 +360,6 @@ export async function getRoomToken(
 
 export { signInToFirebaseRoom }
 
-// ─── Username persistence ────────────────────────────────────────────────────
-
 export function getSavedUsername(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem('clipboard-username')
@@ -433,7 +372,5 @@ export function saveUsername(name: string) {
 export function clearUsername() {
   localStorage.removeItem('clipboard-username')
 }
-
-// ─── Re-export fingerprint helpers ───────────────────────────────────────────
 
 export { getLocalFingerprint }

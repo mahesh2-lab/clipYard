@@ -1,17 +1,6 @@
-/**
- * lib/webrtc/types.ts
- *
- * Shared TypeScript types and constants for the WebRTC file-transfer system.
- * Consumed by the core library, hooks, and UI components.
- */
-
-// ─── Peer connection status ─────────────────────────────────────────────────
-
-/** Current connection state of a WebRTC peer */
 export type PeerStatus = 'connecting' | 'connected' | 'disconnected' | 'failed'
 
-// ─── Transfer protocol messages (sent as JSON over DataChannel) ─────────────
-
+// DataChannel JSON messages
 export interface FileTransferMetadata {
   type: 'file-start'
   transferId: string
@@ -39,15 +28,13 @@ export interface FileTransferCancel {
   transferId: string
 }
 
-/** Discriminated union of all JSON control messages flowing through the DataChannel. */
 export type DataChannelMessage =
   | FileTransferMetadata
   | FileChunkHeader
   | FileTransferComplete
   | FileTransferCancel
 
-// ─── Local transfer state ───────────────────────────────────────────────────
-
+// Local transfer state
 export type TransferDirection = 'sent' | 'received'
 export type TransferStatus = 'pending' | 'transferring' | 'completed' | 'failed' | 'cancelled'
 
@@ -63,19 +50,15 @@ export interface Transfer {
   peerName: string
   status: TransferStatus
   progress: number
-  /** Object URL for completed received files (e.g. image/video preview). */
   objectUrl?: string
-  /** Blob for completed received files (used for download). */
   blob?: Blob
   createdAt: number
   error?: string
-  /** Optional metrics */
-  speed?: number // bytes per second
-  eta?: number // seconds remaining
+  speed?: number
+  eta?: number
 }
 
-// ─── WebRTC signaling messages (stored in Firebase) ─────────────────────────
-
+// Signaling payloads
 export interface SignalingOffer {
   type: 'offer'
   sdp: string
@@ -93,8 +76,6 @@ export interface SignalingCandidate {
 }
 
 export type WebRTCSignalingMessage = SignalingOffer | SignalingAnswer | SignalingCandidate
-
-// ─── Per-peer state tracked by useWebRTC ────────────────────────────────────
 
 export interface PeerConnectionInfo {
   peerId: string

@@ -4,9 +4,7 @@ import { useState, type CSSProperties } from 'react'
 import type { Transfer } from '@/lib/webrtc/types'
 import { TransferProgress } from './TransferProgress'
 
-/**
- * Props for the FileTransferCard component.
- */
+// Props
 interface FileTransferCardProps {
   transfer: Transfer
   onCancel?: (transferId: string) => void

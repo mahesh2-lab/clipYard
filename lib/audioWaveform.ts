@@ -1,9 +1,4 @@
-/**
- * lib/audioWaveform.ts
- *
- * Audio decoding, peak extraction, and waveform rendering utilities
- * adapted from attachment-menu (4).html.
- */
+// Audio decoding and waveform canvas rendering
 
 let sharedAudioCtx: AudioContext | null = null
 

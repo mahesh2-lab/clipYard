@@ -10,9 +10,7 @@ import { FileModal } from './FileModal'
 import type { Transfer } from '@/lib/webrtc/types'
 import { FILE_TRANSFER_CONFIG } from '@/lib/webrtc/config'
 
-/**
- * Props for the FileSharePanel component.
- */
+// Props
 interface FileSharePanelProps {
   roomId: string
   localUid: string

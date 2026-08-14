@@ -1,26 +1,15 @@
-/**
- * lib/webrtc/peerConnection.ts
- *
- * Factory for RTCPeerConnection instances with centralized ICE server config.
- * STUN/TURN servers are configured via environment variables so a TURN server
- * can be added without code changes.
- */
-
 'use client'
 
+// ICE configuration and RTCPeerConnection factory
 function getIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = []
 
-  // Primary STUN from env or default
   const stunUrl = process.env.NEXT_PUBLIC_STUN_SERVER || 'stun:stun.l.google.com:19302'
   servers.push({ urls: stunUrl })
-
-  // Additional public STUN servers for redundancy
   servers.push({ urls: 'stun:stun1.l.google.com:19302' })
   servers.push({ urls: 'stun:stun2.l.google.com:19302' })
   servers.push({ urls: 'stun:stun.cloudflare.com:3478' })
 
-  // Optional TURN server from env
   const turnUrl = process.env.NEXT_PUBLIC_TURN_SERVER
   if (turnUrl) {
     const username = process.env.NEXT_PUBLIC_TURN_USERNAME || ''
@@ -31,11 +20,6 @@ function getIceServers(): RTCIceServer[] {
   return servers
 }
 
-/**
- * Creates a new RTCPeerConnection with the configured ICE servers.
- * Uses bundlePolicy='max-bundle' and iceCandidatePoolSize for faster
- * candidate gathering.
- */
 export function createPeerConnection(): RTCPeerConnection {
   return new RTCPeerConnection({
     iceServers: getIceServers(),
@@ -45,10 +29,6 @@ export function createPeerConnection(): RTCPeerConnection {
   })
 }
 
-/**
- * Checks whether the current browser supports the WebRTC APIs
- * required for P2P image sharing.
- */
 export function isWebRTCSupported(): boolean {
   if (typeof window === 'undefined') return false
   return (

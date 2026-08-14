@@ -18,14 +18,8 @@ export type TransitionVariant =
 interface AnimatedThemeTogglerProps extends React.ComponentPropsWithoutRef<"button"> {
   duration?: number
   variant?: TransitionVariant
-  /** When true, the transition expands from the viewport center instead of the button center. */
   fromCenter?: boolean
-  /**
-   * Controlled theme value. When provided, the parent owns persistence
-   * (e.g. `next-themes`) and this component will not write to localStorage.
-   */
   theme?: "light" | "dark"
-  /** Called on toggle. Pair with `theme` for controlled usage. */
   onThemeChange?: (theme: "light" | "dark") => void
 }
 

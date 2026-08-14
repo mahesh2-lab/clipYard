@@ -1,12 +1,4 @@
-/**
- * lib/webrtc/fileTransfer.ts
- *
- * Chunked file transfer engine for WebRTC DataChannel.
- *
- * Sending: slices a File into chunks with backpressure control.
- * Receiving: collects chunks keyed by transferId and reconstructs a Blob.
- */
-
+// Chunked file transfer engine for WebRTC DataChannel
 'use client'
 
 import {
@@ -18,8 +10,6 @@ import {
 } from './types'
 import { sendControlMessage } from './dataChannel'
 import { FILE_TRANSFER_CONFIG } from './config'
-
-// ─── Validation & Categorization ────────────────────────────────────────────
 
 export function getNormalizedMimeType(file: { type?: string; name?: string }): string {
   if (file.type && file.type.trim() !== '' && file.type !== 'application/octet-stream') {
@@ -155,14 +145,7 @@ export interface SendFileOptions {
   abortSignal?: AbortSignal
 }
 
-/**
- * Send a file over a DataChannel using chunked transfer with backpressure.
- *
- * Protocol:
- *   1. JSON metadata message (file-start)
- *   2. For each chunk: JSON header (file-chunk) + binary ArrayBuffer
- *   3. JSON completion message (file-complete)
- */
+// Send file in chunks over DataChannel
 export async function sendFile({
   channel,
   file,
@@ -257,11 +240,7 @@ export async function sendFile({
   console.log('[FileTransfer] File transfer finished successfully:', { transferId, fileName: file.name })
 }
 
-/**
- * Returns a promise that resolves when the DataChannel's bufferedAmount
- * drops below the threshold, using the `bufferedamountlow` event.
- * Times out after 30 seconds to prevent hanging on a stalled channel.
- */
+// Wait for buffer to drain when backpressure threshold is reached
 function waitForBufferDrain(channel: RTCDataChannel, maxBufferedAmount: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     channel.bufferedAmountLowThreshold = maxBufferedAmount / 2
@@ -300,7 +279,6 @@ export interface IncomingTransfer {
   chunks: ArrayBuffer[]
   receivedChunks: number
   bytesReceived: number
-  /** The next expected chunk header (index). */
   nextExpectedIndex: number
 }
 
@@ -312,13 +290,9 @@ export interface FileReceiverCallbacks {
   onCancelled: (transferId: string) => void
 }
 
-/**
- * Stateful receiver that collects incoming chunks and reconstructs files.
- * Create one instance per peer DataChannel.
- */
+// Collects chunks and reconstructs incoming files
 export class FileReceiver {
   private transfers = new Map<string, IncomingTransfer>()
-  /** Tracks whether we're expecting a binary chunk for a specific transferId. */
   private pendingBinaryFor: string | null = null
   private callbacks: FileReceiverCallbacks
 
@@ -326,9 +300,6 @@ export class FileReceiver {
     this.callbacks = callbacks
   }
 
-  /**
-   * Handle an incoming control message.
-   */
   handleControlMessage(message: DataChannelMessage): void {
     console.log('[FileReceiver] Received control message:', message.type, message)
     switch (message.type) {
@@ -347,9 +318,6 @@ export class FileReceiver {
     }
   }
 
-  /**
-   * Handle incoming binary data (a chunk payload).
-   */
   handleBinaryData(data: ArrayBuffer): void {
     const transferId = this.pendingBinaryFor
     if (!transferId) {
@@ -379,9 +347,6 @@ export class FileReceiver {
     )
   }
 
-  /**
-   * Clean up all active transfers. Called when the channel closes.
-   */
   cleanup(): void {
     console.log('[FileReceiver] Cleaning up receiver active transfers:', Array.from(this.transfers.keys()))
     for (const [transferId] of this.transfers) {

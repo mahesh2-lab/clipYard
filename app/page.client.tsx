@@ -4,9 +4,6 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-/**
- * Client-side component for the home page.
- */
 export default function HomePageClient() {
   const router = useRouter();
   const [roomId, setRoomId] = useState("");

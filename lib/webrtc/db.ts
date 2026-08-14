@@ -1,9 +1,4 @@
-/**
- * lib/webrtc/db.ts
- *
- * IndexedDB wrapper for persisting received images across page reloads.
- */
-
+// IndexedDB storage for received files
 const DB_NAME = 'ClipYardDB'
 const DB_VERSION = 2
 const STORE_NAME = 'files'
@@ -32,7 +27,6 @@ function getDB(): Promise<IDBDatabase> {
       const db = (event.target as IDBOpenDBRequest).result
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-        // Create an index to easily query by room
         store.createIndex('roomId', 'roomId', { unique: false })
       }
     }
@@ -60,7 +54,6 @@ export async function getFilesByRoom(roomId: string): Promise<StoredFile[]> {
     const request = index.getAll(roomId)
 
     request.onsuccess = () => {
-      // Sort descending by createdAt so newest are first
       const results = (request.result as StoredFile[]).sort(
         (a, b) => b.createdAt - a.createdAt
       )

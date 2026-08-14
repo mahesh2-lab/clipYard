@@ -3,6 +3,7 @@ import { getWebsiteStructuredData } from '@/lib/seo/structured-data'
 import { SITE_META } from '@/lib/seo/config'
 import { Metadata } from "next";
 import HomePageClient from "./page.client";
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
   title: 'ClipYard — Real-Time Text Transfer',
@@ -49,7 +50,7 @@ export default function Page() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
       <HomePageClient/>
-      
+      <Analytics/>
     </>
   );
 }

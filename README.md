@@ -152,7 +152,7 @@ clipYard/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Virendra-Phirke/clipYard.git
+git clone https://github.com/mahesh2-lab/clipYard.git
 cd clipYard
 
 # 2. Install dependencies

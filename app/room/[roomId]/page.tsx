@@ -2128,7 +2128,7 @@ export default function RoomPage() {
               Privacy
             </a>
             <a
-              href="https://github.com"
+              href="https://github.com/mahesh2-lab/clipYard"
               target="_blank"
               rel="noopener noreferrer"
               style={S.footerLink}

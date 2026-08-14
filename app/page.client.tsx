@@ -104,7 +104,7 @@ export default function HomePageClient() {
               How it works
             </a>
             <a
-              href="https://github.com"
+              href="https://github.com/mahesh2-lab/clipYard"
               target="_blank"
               rel="noreferrer"
               style={{
